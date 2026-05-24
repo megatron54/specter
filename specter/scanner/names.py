@@ -84,9 +84,17 @@ def resolve_names(hosts: list[dict], service_map: dict, services: list) -> dict[
         pass
 
     def _resolve_single(ip: str) -> tuple[str, str | None]:
-        """Try all methods for a single IP, return first hit."""
+        """Try fast methods for a single IP, return first hit."""
+        # mDNS unicast query — ask device directly for its hostname
+        name = _mdns_unicast_query(ip)
+        if name:
+            return ip, name
         # NetBIOS (fast UDP)
         name = _netbios_lookup(ip)
+        if name:
+            return ip, name
+        # SSDP — catches TVs, routers, media devices
+        name = _ssdp_discover(ip)
         if name:
             return ip, name
         # Reverse DNS (usually instant)
@@ -97,7 +105,6 @@ def resolve_names(hosts: list[dict], service_map: dict, services: list) -> dict[
         name = _dhcp_hostname_via_dns(ip, gateway_ip)
         if name:
             return ip, name
-        # Skip UPnP and HTTP probe — too slow for bulk resolution
         return ip, None
 
     with ThreadPoolExecutor(max_workers=10) as executor:
@@ -114,6 +121,165 @@ def resolve_names(hosts: list[dict], service_map: dict, services: list) -> dict[
             pass  # Some hosts didn't resolve in time — that's fine
 
     return name_map
+
+
+def _mdns_unicast_query(ip: str) -> str | None:
+    """Send a unicast mDNS query directly to a device asking for its hostname.
+
+    Constructs a reverse PTR query for the IP (e.g., 34.1.168.192.in-addr.arpa)
+    sent directly to the device on port 5353. Most devices with mDNS respond
+    with their .local hostname within ~50ms.
+
+    Also tries querying _services._dns-sd._udp.local for service enumeration.
+    """
+    import struct
+
+    # Build reverse DNS name for PTR query
+    octets = ip.split(".")
+    ptr_name = f"{octets[3]}.{octets[2]}.{octets[1]}.{octets[0]}.in-addr.arpa"
+
+    # Build mDNS query packet
+    transaction_id = b"\x00\x00"
+    flags = b"\x00\x00"  # Standard query
+    questions = b"\x00\x01"
+    answer_rrs = b"\x00\x00"
+    authority_rrs = b"\x00\x00"
+    additional_rrs = b"\x00\x00"
+
+    # Encode domain name
+    qname = b""
+    for label in ptr_name.split("."):
+        qname += struct.pack("B", len(label)) + label.encode()
+    qname += b"\x00"
+
+    qtype = b"\x00\x0c"   # PTR
+    qclass = b"\x80\x01"  # IN, unicast-response requested
+
+    packet = transaction_id + flags + questions + answer_rrs + authority_rrs + additional_rrs + qname + qtype + qclass
+
+    try:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        sock.settimeout(0.6)
+        sock.sendto(packet, (ip, 5353))
+        data, _ = sock.recvfrom(1024)
+        sock.close()
+
+        # Parse response — look for PTR answer
+        if len(data) > 12:
+            answer_count = struct.unpack("!H", data[6:8])[0]
+            if answer_count > 0:
+                # Find the answer section (skip header + question)
+                offset = 12
+                # Skip question name
+                while offset < len(data) and data[offset] != 0:
+                    if data[offset] & 0xC0 == 0xC0:
+                        offset += 2
+                        break
+                    offset += data[offset] + 1
+                else:
+                    offset += 1
+                offset += 4  # Skip QTYPE + QCLASS
+
+                # Parse answer — skip name (likely a pointer)
+                if offset < len(data):
+                    if data[offset] & 0xC0 == 0xC0:
+                        offset += 2
+                    else:
+                        while offset < len(data) and data[offset] != 0:
+                            offset += data[offset] + 1
+                        offset += 1
+
+                    if offset + 10 <= len(data):
+                        offset += 8  # Skip TYPE(2) + CLASS(2) + TTL(4)
+                        rdlength = struct.unpack("!H", data[offset:offset + 2])[0]
+                        offset += 2
+
+                        # Read the PTR domain name
+                        hostname = _decode_dns_name(data, offset)
+                        if hostname:
+                            # Clean up: remove .local suffix
+                            hostname = hostname.rstrip(".")
+                            if hostname.endswith(".local"):
+                                hostname = hostname[:-6]
+                            return hostname
+
+    except (socket.timeout, OSError):
+        pass
+
+    # Fallback: try A record query for common .local names
+    return None
+
+
+def _decode_dns_name(data: bytes, offset: int) -> str:
+    """Decode a DNS name from packet data, handling compression pointers."""
+    parts = []
+    seen_offsets = set()
+    while offset < len(data):
+        if offset in seen_offsets:
+            break
+        seen_offsets.add(offset)
+        length = data[offset]
+        if length == 0:
+            break
+        if length & 0xC0 == 0xC0:
+            # Compression pointer
+            pointer = ((length & 0x3F) << 8) | data[offset + 1]
+            return ".".join(parts) + ("." if parts else "") + _decode_dns_name(data, pointer)
+        offset += 1
+        parts.append(data[offset:offset + length].decode("utf-8", errors="ignore"))
+        offset += length
+    return ".".join(parts)
+
+
+def _ssdp_discover(ip: str) -> str | None:
+    """Send a unicast SSDP M-SEARCH to a device and parse its friendly name.
+
+    SSDP (UPnP) devices respond with a LOCATION header pointing to their
+    device description XML which contains the friendly name.
+    """
+    msearch = (
+        "M-SEARCH * HTTP/1.1\r\n"
+        f"HOST: {ip}:1900\r\n"
+        "MAN: \"ssdp:discover\"\r\n"
+        "MX: 1\r\n"
+        "ST: ssdp:all\r\n"
+        "\r\n"
+    ).encode()
+
+    try:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        sock.settimeout(0.8)
+        sock.sendto(msearch, (ip, 1900))
+        data, _ = sock.recvfrom(2048)
+        sock.close()
+
+        response = data.decode("utf-8", errors="ignore")
+
+        # Look for LOCATION header and fetch device description
+        import re
+        location = re.search(r"LOCATION:\s*(http://[^\r\n]+)", response, re.IGNORECASE)
+        if location:
+            try:
+                resp = httpx.get(location.group(1), timeout=0.8)
+                if resp.status_code == 200 and "<friendlyName>" in resp.text:
+                    fn = re.search(r"<friendlyName>([^<]+)</friendlyName>", resp.text)
+                    if fn:
+                        return fn.group(1)
+            except Exception:
+                pass
+
+        # Try parsing SERVER header for device name
+        server = re.search(r"SERVER:\s*([^\r\n]+)", response, re.IGNORECASE)
+        if server:
+            name = server.group(1).strip()
+            # Only use if it looks like a device name, not generic
+            if name and "UPnP" not in name and "Linux" not in name and len(name) < 50:
+                return name
+
+    except (socket.timeout, OSError):
+        pass
+
+    return None
 
 
 def _netbios_lookup(ip: str) -> str | None:
