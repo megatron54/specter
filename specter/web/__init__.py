@@ -1,0 +1,1 @@
+"""Specter web dashboard."""

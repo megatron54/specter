@@ -1,0 +1,1 @@
+"""Network kill switch module."""
