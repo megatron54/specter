@@ -172,3 +172,97 @@ class SamsungTVModule:
             return resp.status_code == 200
         except (httpx.ConnectError, httpx.ReadTimeout):
             return False
+
+    def open_browser(self, url: str) -> bool:
+        """Open a URL in the Samsung TV's built-in browser.
+
+        Uses the internal browser app with a URL parameter.
+        The TV browser app ID is typically 'org.tizen.browser'.
+
+        Args:
+            url: URL to open on the TV screen.
+        """
+        # Samsung TV browser app IDs (varies by model/year)
+        browser_ids = [
+            "org.tizen.browser",
+            "com.samsung.tv.browser",
+            "Internet",  # Some models use this
+        ]
+
+        for browser_id in browser_ids:
+            try:
+                # Method 1: Launch with deep link
+                resp = self._client.post(
+                    f"{self.tv.base_url}/api/v2/applications/{browser_id}",
+                    json={"id": browser_id, "metaTag": url},
+                )
+                if resp.status_code == 200:
+                    return True
+
+                # Method 2: Use run endpoint with URL param
+                resp = self._client.post(
+                    f"http://{self.tv.ip}:8001/api/v2/applications/{browser_id}",
+                    json={"id": browser_id, "url": url},
+                )
+                if resp.status_code == 200:
+                    return True
+            except (httpx.ConnectError, httpx.ReadTimeout):
+                continue
+
+        return False
+
+    def launch_youtube(self, video_id: str = "") -> bool:
+        """Launch YouTube app, optionally with a specific video.
+
+        Args:
+            video_id: YouTube video ID to play (empty = just open app).
+        """
+        youtube_ids = ["111299001912", "YouTube", "com.samsung.tv.youtube"]
+
+        for yt_id in youtube_ids:
+            try:
+                payload = {"id": yt_id}
+                if video_id:
+                    payload["metaTag"] = f"https://www.youtube.com/watch?v={video_id}"
+                resp = self._client.post(
+                    f"{self.tv.base_url}/api/v2/applications/{yt_id}",
+                    json=payload,
+                )
+                if resp.status_code == 200:
+                    return True
+            except (httpx.ConnectError, httpx.ReadTimeout):
+                continue
+        return False
+
+    def send_text(self, text: str) -> bool:
+        """Send text input to the TV (fills text fields).
+
+        Uses the WebSocket text input API. Useful when browser is open.
+        """
+        try:
+            encoded = base64.b64encode(text.encode()).decode()
+            payload = {
+                "method": "ms.remote.control",
+                "params": {
+                    "Cmd": encoded,
+                    "DataOfCmd": "base64",
+                    "TypeOfRemote": "SendInputString",
+                },
+            }
+            resp = self._client.post(
+                f"{self.tv.base_url}/api/v2/channels/samsung.remote.control",
+                json=payload,
+            )
+            return resp.status_code == 200
+        except (httpx.ConnectError, httpx.ReadTimeout):
+            return False
+
+    def get_app_status(self, app_id: str) -> dict | None:
+        """Check if an app is currently running."""
+        try:
+            resp = self._client.get(f"{self.tv.base_url}/api/v2/applications/{app_id}")
+            if resp.status_code == 200:
+                return resp.json()
+        except (httpx.ConnectError, httpx.ReadTimeout):
+            pass
+        return None

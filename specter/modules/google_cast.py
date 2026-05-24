@@ -209,6 +209,91 @@ class GoogleCastModule:
         resp.raise_for_status()
         return resp.json()
 
+    # === DIAL Protocol — Launch apps without authentication ===
+
+    def dial_launch_youtube(self, video_id: str = "") -> bool:
+        """Launch YouTube on a Cast device via DIAL protocol (NO AUTH).
+
+        DIAL runs on port 8008 and allows launching registered apps.
+
+        Args:
+            video_id: YouTube video ID to play. Empty = open YouTube home.
+        """
+        url = f"http://{self.device.ip}:8008/apps/YouTube"
+        payload = f"v={video_id}" if video_id else ""
+        try:
+            resp = self._unauth_client.post(url, content=payload,
+                headers={"Content-Type": "text/plain"})
+            return resp.status_code in (200, 201)
+        except Exception:
+            return False
+
+    def dial_launch_netflix(self) -> bool:
+        """Launch Netflix via DIAL (NO AUTH)."""
+        url = f"http://{self.device.ip}:8008/apps/Netflix"
+        try:
+            resp = self._unauth_client.post(url, content="",
+                headers={"Content-Type": "text/plain"})
+            return resp.status_code in (200, 201)
+        except Exception:
+            return False
+
+    def dial_launch_url(self, url_to_cast: str) -> bool:
+        """Cast a URL to the device's screen via the default media receiver.
+
+        Uses the Default Media Receiver DIAL app to display a URL.
+        This works on Chromecast/Google TV devices.
+
+        Args:
+            url_to_cast: URL to display on the device screen.
+        """
+        # Try DefaultMediaReceiver (Chromecast)
+        dial_url = f"http://{self.device.ip}:8008/apps/ChromeCast"
+        try:
+            resp = self._unauth_client.post(dial_url, content=url_to_cast,
+                headers={"Content-Type": "text/plain"})
+            if resp.status_code in (200, 201):
+                return True
+        except Exception:
+            pass
+
+        # Try Backdrop/Ambient to force display
+        dial_url = f"http://{self.device.ip}:8008/apps/Backdrop"
+        try:
+            resp = self._unauth_client.post(dial_url, content=url_to_cast,
+                headers={"Content-Type": "text/plain"})
+            return resp.status_code in (200, 201)
+        except Exception:
+            return False
+
+    def dial_get_running_app(self) -> dict | None:
+        """Check what app is currently running via DIAL."""
+        apps = ["YouTube", "Netflix", "ChromeCast", "Backdrop"]
+        for app in apps:
+            try:
+                resp = self._unauth_client.get(f"http://{self.device.ip}:8008/apps/{app}")
+                if resp.status_code == 200:
+                    return {"app": app, "state": resp.text[:500]}
+            except Exception:
+                continue
+        return None
+
+    def dial_stop_app(self, app_name: str = "YouTube") -> bool:
+        """Stop a running app via DIAL (NO AUTH)."""
+        try:
+            resp = self._unauth_client.get(f"http://{self.device.ip}:8008/apps/{app_name}")
+            if resp.status_code == 200 and "href" in resp.text:
+                import re
+                href = re.search(r'href="([^"]+)"', resp.text)
+                if href:
+                    stop_url = f"http://{self.device.ip}:8008{href.group(1)}"
+                    del_resp = self._unauth_client.request("DELETE", stop_url)
+                    return del_resp.status_code == 200
+            resp = self._unauth_client.request("DELETE", f"http://{self.device.ip}:8008/apps/{app_name}/run")
+            return resp.status_code == 200
+        except Exception:
+            return False
+
     def set_night_mode(self, enabled: bool, volume: float = 0.5, led_brightness: float = 0.5) -> dict:
         """Configure night mode settings.
 

