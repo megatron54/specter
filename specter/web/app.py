@@ -533,26 +533,39 @@ async def start_mitm(req: MITMRequest):
 
     # Start background task to broadcast MITM data
     def mitm_broadcast_loop():
-        last_count = 0
-        last_cred_count = 0
+        last_dns = 0
+        last_http = 0
+        last_cred = 0
+        last_harvest = 0
         while attack_id in _state["active_attacks"]:
             session = sniffer.session
-            if session.packet_count > last_count:
-                for dns in session.dns_queries[last_count:]:
+
+            # DNS queries
+            if len(session.dns_queries) > last_dns:
+                for dns in session.dns_queries[last_dns:]:
                     add_log("mitm", f"DNS: {dns['query']}")
-                for http in session.http_requests[last_count:]:
+                last_dns = len(session.dns_queries)
+
+            # HTTP requests
+            if len(session.http_requests) > last_http:
+                for http in session.http_requests[last_http:]:
                     add_log("mitm", f"HTTP: {http['request']}")
-                for cred in session.credentials[last_count:]:
+                last_http = len(session.http_requests)
+
+            # Sniffer credential hits
+            if len(session.credentials) > last_cred:
+                for cred in session.credentials[last_cred:]:
                     add_log("cred", f"CREDENTIALS: {cred['snippet'][:80]}")
-                last_count = session.packet_count
+                last_cred = len(session.credentials)
 
             # Credential harvester updates
-            if req.harvest_creds and "harvester" in _state["active_attacks"].get(attack_id, {}):
+            if "harvester" in _state["active_attacks"].get(attack_id, {}):
                 harvester = _state["active_attacks"][attack_id]["harvester"]
-                if harvester.count > last_cred_count:
-                    for c in harvester.credentials[last_cred_count:]:
+                if harvester.count > last_harvest:
+                    for c in harvester.credentials[last_harvest:]:
                         add_log("cred", f"[{c.protocol}] {c.username}:{c.password} -> {c.dst_ip}:{c.dst_port}")
-                    last_cred_count = harvester.count
+                    last_harvest = harvester.count
+
             time.sleep(1)
 
     threading.Thread(target=mitm_broadcast_loop, daemon=True).start()
