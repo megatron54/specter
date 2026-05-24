@@ -17,7 +17,7 @@ import httpx
 
 
 def resolve_names(hosts: list[dict], service_map: dict, services: list) -> dict[str, str]:
-    """Resolve device names using all available methods.
+    """Resolve device names using all available methods (parallelized).
 
     Args:
         hosts: List of dicts with 'ip' and 'mac' keys.
@@ -27,9 +27,11 @@ def resolve_names(hosts: list[dict], service_map: dict, services: list) -> dict[
     Returns:
         Dict mapping IP -> friendly name.
     """
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
     name_map: dict[str, str] = {}
 
-    # 1. mDNS service properties
+    # 1. mDNS service properties (instant, no network)
     for svc in services:
         if svc.host and svc.host not in name_map:
             friendly = (
@@ -42,12 +44,11 @@ def resolve_names(hosts: list[dict], service_map: dict, services: list) -> dict[
             if friendly:
                 name_map[svc.host] = friendly
             elif svc.name:
-                # Extract name from service name (e.g., "Living Room._googlecast._tcp.local.")
                 parts = svc.name.split("._")
                 if parts:
                     name_map[svc.host] = parts[0]
 
-    # 2. Google Cast API (unauthenticated, port 8008)
+    # 2. Google Cast API (only for cast devices — fast, targeted)
     for host in hosts:
         ip = host["ip"] if isinstance(host, dict) else host.ip
         if ip in name_map:
@@ -55,7 +56,7 @@ def resolve_names(hosts: list[dict], service_map: dict, services: list) -> dict[
         svc_list = service_map.get(ip, [])
         if "_googlecast._tcp.local." in svc_list:
             try:
-                resp = httpx.get(f"http://{ip}:8008/setup/eureka_info", timeout=2.0)
+                resp = httpx.get(f"http://{ip}:8008/setup/eureka_info", timeout=1.0)
                 if resp.status_code == 200:
                     data = resp.json()
                     name = data.get("name", "")
@@ -64,35 +65,17 @@ def resolve_names(hosts: list[dict], service_map: dict, services: list) -> dict[
             except Exception:
                 pass
 
-    # 3. NetBIOS name resolution
-    for host in hosts:
-        ip = host["ip"] if isinstance(host, dict) else host.ip
-        if ip in name_map:
-            continue
-        name = _netbios_lookup(ip)
-        if name:
-            name_map[ip] = name
+    # Remaining hosts that still need names — resolve in parallel
+    unresolved = [
+        (host["ip"] if isinstance(host, dict) else host.ip)
+        for host in hosts
+        if (host["ip"] if isinstance(host, dict) else host.ip) not in name_map
+    ]
 
-    # 4. SSDP/UPnP — query device description XML
-    for host in hosts:
-        ip = host["ip"] if isinstance(host, dict) else host.ip
-        if ip in name_map:
-            continue
-        name = _upnp_lookup(ip)
-        if name:
-            name_map[ip] = name
+    if not unresolved:
+        return name_map
 
-    # 5. Reverse DNS
-    for host in hosts:
-        ip = host["ip"] if isinstance(host, dict) else host.ip
-        if ip in name_map:
-            continue
-        name = _reverse_dns(ip)
-        if name:
-            name_map[ip] = name
-
-    # 6. DHCP hostname via router DNS
-    # Detect gateway
+    # Detect gateway once
     gateway_ip = None
     try:
         from scapy.all import conf
@@ -100,22 +83,39 @@ def resolve_names(hosts: list[dict], service_map: dict, services: list) -> dict[
     except Exception:
         pass
 
-    for host in hosts:
-        ip = host["ip"] if isinstance(host, dict) else host.ip
-        if ip in name_map:
-            continue
+    def _resolve_single(ip: str) -> tuple[str, str | None]:
+        """Try all methods for a single IP, return first hit."""
+        # NetBIOS (fast UDP)
+        name = _netbios_lookup(ip)
+        if name:
+            return ip, name
+        # Reverse DNS (usually instant)
+        name = _reverse_dns(ip)
+        if name:
+            return ip, name
+        # DHCP hostname
         name = _dhcp_hostname_via_dns(ip, gateway_ip)
         if name:
-            name_map[ip] = name
-
-    # 7. Active HTTP probing (last resort — slower)
-    for host in hosts:
-        ip = host["ip"] if isinstance(host, dict) else host.ip
-        if ip in name_map:
-            continue
+            return ip, name
+        # UPnP (slower, HTTP)
+        name = _upnp_lookup(ip)
+        if name:
+            return ip, name
+        # HTTP probe (slowest, last resort)
         name = _http_probe(ip)
         if name:
-            name_map[ip] = name
+            return ip, name
+        return ip, None
+
+    with ThreadPoolExecutor(max_workers=10) as executor:
+        futures = {executor.submit(_resolve_single, ip): ip for ip in unresolved}
+        for future in as_completed(futures, timeout=8):
+            try:
+                ip, name = future.result(timeout=1)
+                if name:
+                    name_map[ip] = name
+            except Exception:
+                pass
 
     return name_map
 
@@ -170,7 +170,7 @@ def _upnp_lookup(ip: str) -> str | None:
         f"http://{ip}:8001/api/v2/",
     ]
     try:
-        client = httpx.Client(timeout=1.5)
+        client = httpx.Client(timeout=0.8)
         for url in urls:
             try:
                 resp = client.get(url)
@@ -227,7 +227,7 @@ def _http_probe(ip: str) -> str | None:
     import re
 
     ports_to_try = [80, 8080, 443, 8008, 8443]
-    client = httpx.Client(timeout=2.0, verify=False, follow_redirects=True)
+    client = httpx.Client(timeout=1.0, verify=False, follow_redirects=True)
 
     for port in ports_to_try:
         scheme = "https" if port in (443, 8443) else "http"
@@ -317,7 +317,7 @@ def _dhcp_hostname_via_dns(ip: str, gateway_ip: str | None = None) -> str | None
             packet = transaction_id + flags + questions + answer_rrs + authority_rrs + additional_rrs + qname + qtype + qclass
 
             sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            sock.settimeout(1.5)
+        sock.settimeout(0.8)
             sock.sendto(packet, (dns_server, 53))
             data, _ = sock.recvfrom(1024)
             sock.close()

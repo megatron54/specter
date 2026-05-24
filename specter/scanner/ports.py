@@ -92,7 +92,7 @@ def scan_port(ip: str, port: int, timeout: float = 1.5) -> OpenPort | None:
                     pass  # MQTT needs specific handshake
                 else:
                     sock.sendall(b"\r\n")
-                sock.settimeout(2.0)
+                sock.settimeout(0.8)
                 banner = sock.recv(1024).decode(errors="ignore").strip()
             except (socket.timeout, OSError):
                 pass

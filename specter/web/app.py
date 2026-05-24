@@ -206,6 +206,17 @@ async def get_devices():
 @app.post("/api/scan")
 async def trigger_scan(req: ScanRequest):
     """Run a network scan and return discovered devices."""
+    import asyncio
+    loop = asyncio.get_event_loop()
+    result = await loop.run_in_executor(None, _do_scan, req)
+    _state["devices"] = result["devices"]
+    _save_scan_results()
+    add_log("success", f"Found {len(result['devices'])} devices")
+    await broadcast("devices", result["devices"])
+    return result
+
+
+def _do_scan(req: ScanRequest) -> dict:
     from specter.scanner.arp import arp_scan
     from specter.scanner.mdns import MDNSScanner
     from specter.scanner.fingerprint import fingerprint_device, lookup_oui
@@ -219,26 +230,39 @@ async def trigger_scan(req: ScanRequest):
     add_log("info", f"Scanning {subnet}...")
 
     # ARP scan
-    hosts = arp_scan(subnet, timeout=req.timeout)
+    hosts = arp_scan(subnet, timeout=min(req.timeout, 3.0))
 
     # mDNS
     mdns = MDNSScanner()
-    services = mdns.scan(duration=req.timeout)
+    services = mdns.scan(duration=min(req.timeout, 3.0))
     service_map: dict[str, list[str]] = {}
     for svc in services:
         service_map.setdefault(svc.host, []).append(svc.service_type)
 
-    # Port scan if requested
+    # Port scan if requested (parallelized)
     port_map: dict[str, list[dict]] = {}
     if req.ports:
         from specter.scanner.ports import port_scan
-        for host in hosts:
-            result = port_scan(host.ip, timeout=1.0)
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+
+        def _scan_host(host):
+            result = port_scan(host.ip, timeout=0.8)
             if result.open_ports:
-                port_map[host.ip] = [
+                return host.ip, [
                     {"port": p.port, "service": p.service, "banner": p.banner[:100], "unauth": p.unauthenticated}
                     for p in result.open_ports
                 ]
+            return host.ip, []
+
+        with ThreadPoolExecutor(max_workers=8) as executor:
+            futures = [executor.submit(_scan_host, h) for h in hosts]
+            for f in as_completed(futures, timeout=30):
+                try:
+                    ip, ports = f.result(timeout=1)
+                    if ports:
+                        port_map[ip] = ports
+                except Exception:
+                    pass
 
     # Resolve device names
     from specter.scanner.names import resolve_names
@@ -260,24 +284,32 @@ async def trigger_scan(req: ScanRequest):
             "open_ports": port_map.get(host.ip, []),
         })
 
-    _state["devices"] = devices
-
-    # OS fingerprinting if requested
+    # OS fingerprinting if requested (parallelized)
     if req.os_detect:
         from specter.scanner.os_fingerprint import fingerprint_os
+        from concurrent.futures import ThreadPoolExecutor as TP2, as_completed as as_comp2
+
         add_log("info", "Running OS detection...")
-        for dev in devices:
+
+        def _os_detect(dev):
             try:
                 fp = fingerprint_os(dev["ip"])
-                _state["os_results"][dev["ip"]] = {
-                    "os_family": fp.os_family,
-                    "os_detail": fp.os_detail,
-                    "confidence": fp.confidence,
-                    "evidence": fp.evidence,
-                }
-                dev["os"] = fp.os_family
+                return dev["ip"], {"os_family": fp.os_family, "os_detail": fp.os_detail, "confidence": fp.confidence, "evidence": fp.evidence}
             except Exception:
-                dev["os"] = "Unknown"
+                return dev["ip"], None
+
+        with TP2(max_workers=6) as executor:
+            futures = [executor.submit(_os_detect, d) for d in devices]
+            for f in as_comp2(futures, timeout=30):
+                try:
+                    ip, result = f.result(timeout=1)
+                    if result:
+                        _state["os_results"][ip] = result
+                        dev = next((d for d in devices if d["ip"] == ip), None)
+                        if dev:
+                            dev["os"] = result["os_family"]
+                except Exception:
+                    pass
 
     # Vulnerability scanning if requested
     if req.vulns and req.ports:
@@ -295,9 +327,6 @@ async def trigger_scan(req: ScanRequest):
                 _state["vulnerabilities"][dev["ip"]] = vuln_dicts
                 dev["vuln_count"] = len(vulns)
 
-    _save_scan_results()
-    add_log("success", f"Found {len(devices)} devices")
-    await broadcast("devices", devices)
     return {"devices": devices, "subnet": subnet}
 
 
