@@ -109,13 +109,16 @@ def resolve_names(hosts: list[dict], service_map: dict, services: list) -> dict[
 
     with ThreadPoolExecutor(max_workers=10) as executor:
         futures = {executor.submit(_resolve_single, ip): ip for ip in unresolved}
-        for future in as_completed(futures, timeout=8):
-            try:
-                ip, name = future.result(timeout=1)
-                if name:
-                    name_map[ip] = name
-            except Exception:
-                pass
+        try:
+            for future in as_completed(futures, timeout=10):
+                try:
+                    ip, name = future.result(timeout=1)
+                    if name:
+                        name_map[ip] = name
+                except Exception:
+                    pass
+        except TimeoutError:
+            pass  # Some hosts didn't resolve in time — that's fine
 
     return name_map
 
@@ -139,7 +142,7 @@ def _netbios_lookup(ip: str) -> str | None:
             b"\x00\x01"  # Class: IN
         )
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        sock.settimeout(1.5)
+        sock.settimeout(0.8)
         sock.sendto(payload, (ip, 137))
         data, _ = sock.recvfrom(1024)
         sock.close()
@@ -317,7 +320,7 @@ def _dhcp_hostname_via_dns(ip: str, gateway_ip: str | None = None) -> str | None
             packet = transaction_id + flags + questions + answer_rrs + authority_rrs + additional_rrs + qname + qtype + qclass
 
             sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        sock.settimeout(0.8)
+            sock.settimeout(0.8)
             sock.sendto(packet, (dns_server, 53))
             data, _ = sock.recvfrom(1024)
             sock.close()

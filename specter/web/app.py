@@ -256,13 +256,16 @@ def _do_scan(req: ScanRequest) -> dict:
 
         with ThreadPoolExecutor(max_workers=8) as executor:
             futures = [executor.submit(_scan_host, h) for h in hosts]
-            for f in as_completed(futures, timeout=30):
-                try:
-                    ip, ports = f.result(timeout=1)
-                    if ports:
-                        port_map[ip] = ports
-                except Exception:
-                    pass
+            try:
+                for f in as_completed(futures, timeout=30):
+                    try:
+                        ip, ports = f.result(timeout=1)
+                        if ports:
+                            port_map[ip] = ports
+                    except Exception:
+                        pass
+            except TimeoutError:
+                pass
 
     # Resolve device names
     from specter.scanner.names import resolve_names
@@ -300,16 +303,19 @@ def _do_scan(req: ScanRequest) -> dict:
 
         with TP2(max_workers=6) as executor:
             futures = [executor.submit(_os_detect, d) for d in devices]
-            for f in as_comp2(futures, timeout=30):
-                try:
-                    ip, result = f.result(timeout=1)
-                    if result:
-                        _state["os_results"][ip] = result
-                        dev = next((d for d in devices if d["ip"] == ip), None)
-                        if dev:
-                            dev["os"] = result["os_family"]
-                except Exception:
-                    pass
+            try:
+                for f in as_comp2(futures, timeout=30):
+                    try:
+                        ip, result = f.result(timeout=1)
+                        if result:
+                            _state["os_results"][ip] = result
+                            dev = next((d for d in devices if d["ip"] == ip), None)
+                            if dev:
+                                dev["os"] = result["os_family"]
+                    except Exception:
+                        pass
+            except TimeoutError:
+                pass
 
     # Vulnerability scanning if requested
     if req.vulns and req.ports:
