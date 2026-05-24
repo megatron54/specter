@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Specter — Network Control</title>
+    <title>Specter — Network Reconnaissance</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
         tailwind.config = {
@@ -11,72 +11,122 @@
             theme: {
                 extend: {
                     colors: {
-                        specter: { 900: '#0a0a0f', 800: '#12121a', 700: '#1a1a2e', 600: '#252540' },
-                        neon: { red: '#ff3b3b', green: '#00ff88', blue: '#00bfff', yellow: '#ffd700', purple: '#b44dff', orange: '#ff8c00' }
+                        bg: { 900: '#050508', 800: '#0c0c12', 700: '#13131d', 600: '#1c1c2b' },
+                        accent: { red: '#ef4444', green: '#10b981', blue: '#3b82f6', yellow: '#f59e0b', purple: '#8b5cf6', cyan: '#06b6d4', orange: '#f97316', pink: '#ec4899' }
                     }
                 }
             }
         }
     </script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@300;400;500&display=swap" rel="stylesheet">
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;700&family=Inter:wght@300;400;500;600;700&display=swap');
-        body { font-family: 'Inter', sans-serif; background: #0a0a0f; }
+        * { font-family: 'Inter', -apple-system, sans-serif; }
         .mono { font-family: 'JetBrains Mono', monospace; }
-        .glow-red { box-shadow: 0 0 20px rgba(255, 59, 59, 0.3); }
-        .glow-green { box-shadow: 0 0 20px rgba(0, 255, 136, 0.3); }
-        .glow-blue { box-shadow: 0 0 20px rgba(0, 191, 255, 0.3); }
-        .pulse { animation: pulse 2s infinite; }
-        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
-        .device-card:hover { transform: translateY(-2px); transition: all 0.2s; }
-        .log-entry { animation: slideIn 0.3s ease-out; }
-        @keyframes slideIn { from { opacity: 0; transform: translateX(-10px); } to { opacity: 1; transform: translateX(0); } }
-        @keyframes toastIn { from { opacity: 0; transform: translateY(-20px); } to { opacity: 1; transform: translateY(0); } }
-        @keyframes toastOut { from { opacity: 1; } to { opacity: 0; transform: translateY(-20px); } }
+        body { background: #050508; overflow: hidden; }
+
+        /* Glassmorphism */
+        .glass { background: rgba(255,255,255,0.03); backdrop-filter: blur(20px); border: 1px solid rgba(255,255,255,0.06); }
+        .glass-hover:hover { background: rgba(255,255,255,0.06); border-color: rgba(255,255,255,0.1); }
+
+        /* Gradient mesh background */
+        .mesh-bg {
+            position: fixed; inset: 0; z-index: -1;
+            background:
+                radial-gradient(ellipse 80% 60% at 10% 90%, rgba(59,130,246,0.06) 0%, transparent 60%),
+                radial-gradient(ellipse 60% 80% at 90% 10%, rgba(139,92,246,0.05) 0%, transparent 50%),
+                radial-gradient(ellipse 50% 50% at 50% 50%, rgba(6,182,212,0.03) 0%, transparent 60%);
+        }
+
+        /* Animations */
+        @keyframes fadeUp { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+        @keyframes slideIn { from { opacity: 0; transform: translateX(-8px); } to { opacity: 1; transform: translateX(0); } }
+        @keyframes pulse-soft { 0%, 100% { opacity: 1; } 50% { opacity: 0.6; } }
+        @keyframes glow { 0%, 100% { box-shadow: 0 0 8px rgba(239,68,68,0.3); } 50% { box-shadow: 0 0 16px rgba(239,68,68,0.5); } }
+        .fade-up { animation: fadeUp 0.3s ease-out both; }
+        .slide-in { animation: slideIn 0.3s ease-out both; }
+        .pulse-soft { animation: pulse-soft 2s ease-in-out infinite; }
+        .glow-attack { animation: glow 2s ease-in-out infinite; }
+
+        /* Scrollbar */
+        ::-webkit-scrollbar { width: 5px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 10px; }
+        ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.2); }
+
+        /* Device cards */
+        .device-card { transition: all 0.2s ease; }
+        .device-card:hover { transform: translateY(-2px); box-shadow: 0 8px 30px rgba(0,0,0,0.4); }
+
+        /* Toast */
+        @keyframes toastIn { from { opacity: 0; transform: translateX(20px); } to { opacity: 1; transform: translateX(0); } }
+        @keyframes toastOut { from { opacity: 1; } to { opacity: 0; transform: translateX(20px); } }
         .toast { animation: toastIn 0.3s ease-out; }
         .toast-exit { animation: toastOut 0.3s ease-out forwards; }
-        ::-webkit-scrollbar { width: 6px; }
-        ::-webkit-scrollbar-track { background: #12121a; }
-        ::-webkit-scrollbar-thumb { background: #333; border-radius: 3px; }
-        /* Topology graph */
+
+        /* Topology */
         .topo-node { cursor: pointer; transition: all 0.2s; }
-        .topo-node:hover { filter: brightness(1.3); }
-        .topo-line { stroke: #333; stroke-width: 1; }
-        .topo-line-active { stroke: #ff3b3b; stroke-width: 2; animation: pulse 1s infinite; }
-        /* Mobile responsive */
+        .topo-node:hover { filter: brightness(1.4); transform: scale(1.1); }
+        .topo-line { stroke: rgba(255,255,255,0.08); stroke-width: 1; }
+        .topo-line-active { stroke: #ef4444; stroke-width: 2; stroke-dasharray: 4 2; animation: pulse-soft 1.5s infinite; }
+
+        /* Button styles */
+        .btn { transition: all 0.15s ease; position: relative; overflow: hidden; }
+        .btn:active { transform: scale(0.97); }
+        .btn-primary { background: linear-gradient(135deg, #3b82f6, #2563eb); }
+        .btn-primary:hover { box-shadow: 0 4px 15px rgba(59,130,246,0.3); }
+        .btn-danger { background: linear-gradient(135deg, #ef4444, #dc2626); }
+        .btn-danger:hover { box-shadow: 0 4px 15px rgba(239,68,68,0.3); }
+
+        /* Mobile */
         @media (max-width: 768px) {
             .main-layout { flex-direction: column !important; }
             .left-panel, .right-panel { width: 100% !important; border-right: none !important; }
-            .left-panel { height: 60vh; }
-            .right-panel { height: 40vh; }
+            .left-panel { height: 65vh; }
+            .right-panel { height: 35vh; }
         }
+
+        /* Tab indicator */
+        .tab-active { color: #fff; border-color: #3b82f6; }
+        .tab-inactive { color: #6b7280; border-color: transparent; }
+        .tab-inactive:hover { color: #9ca3af; }
     </style>
 </head>
-<body class="bg-specter-900 text-gray-200 min-h-screen">
+<body class="text-gray-300 min-h-screen">
+    <div class="mesh-bg"></div>
+
     <!-- Toast container -->
     <div id="toast-container" class="fixed top-4 right-4 z-[100] space-y-2 max-w-sm"></div>
 
     <!-- Header -->
-    <header class="border-b border-gray-800 px-4 md:px-6 py-3 flex items-center justify-between flex-wrap gap-2">
+    <header class="glass border-b border-white/5 px-5 py-3 flex items-center justify-between flex-wrap gap-2 relative z-10">
         <div class="flex items-center gap-3">
-            <div class="w-8 h-8 bg-neon-red rounded-lg flex items-center justify-center glow-red">
-                <svg class="w-5 h-5 text-white" fill="currentColor" viewBox="0 0 20 20">
-                    <path d="M10 12a2 2 0 100-4 2 2 0 000 4z"/>
-                    <path fill-rule="evenodd" d="M.458 10C1.732 5.943 5.522 3 10 3s8.268 2.943 9.542 7c-1.274 4.057-5.064 7-9.542 7S1.732 14.057.458 10zM14 10a4 4 0 11-8 0 4 4 0 018 0z"/>
-                </svg>
+            <div class="relative">
+                <div class="w-9 h-9 rounded-xl bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center shadow-lg shadow-blue-500/20">
+                    <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2z"/>
+                        <circle cx="12" cy="12" r="3" fill="currentColor"/>
+                        <path stroke-linecap="round" d="M12 2v4m0 12v4m10-10h-4M6 12H2m15.07-5.07l-2.83 2.83M9.76 14.24l-2.83 2.83m0-10.14l2.83 2.83m4.48 4.48l2.83 2.83"/>
+                    </svg>
+                </div>
             </div>
-            <h1 class="text-xl font-bold text-white">SPECTER</h1>
-            <span class="text-xs text-gray-500 mono">v0.2.0</span>
+            <div>
+                <h1 class="text-lg font-bold text-white tracking-tight">SPECTER</h1>
+                <span class="text-[10px] text-gray-500 mono">v0.3.0 // network recon</span>
+            </div>
         </div>
         <div class="flex items-center gap-3 flex-wrap">
-            <div id="monitor-badge" class="hidden px-3 py-1 bg-green-900/50 border border-green-700 rounded-full cursor-pointer" onclick="toggleMonitor()">
-                <span class="text-xs text-neon-green mono"><span class="inline-block w-2 h-2 rounded-full bg-neon-green pulse mr-1"></span>MONITORING</span>
+            <div id="monitor-badge" class="hidden px-3 py-1.5 glass rounded-full cursor-pointer border-emerald-500/30" onclick="toggleMonitor()">
+                <span class="text-[11px] text-emerald-400 mono flex items-center gap-1.5">
+                    <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 pulse-soft"></span>MONITORING
+                </span>
             </div>
             <div id="status-indicator" class="flex items-center gap-2">
-                <div class="w-2 h-2 rounded-full bg-neon-green pulse"></div>
-                <span class="text-xs text-gray-400">Connected</span>
+                <div class="w-2 h-2 rounded-full bg-emerald-400 pulse-soft"></div>
+                <span class="text-[11px] text-gray-500">Live</span>
             </div>
-            <div id="attack-counter" class="hidden px-3 py-1 bg-red-900/50 border border-red-700 rounded-full">
-                <span class="text-xs text-neon-red mono font-bold"><span id="attack-count">0</span> ACTIVE</span>
+            <div id="attack-counter" class="hidden px-3 py-1.5 rounded-full bg-red-500/10 border border-red-500/30 glow-attack">
+                <span class="text-[11px] text-red-400 mono font-semibold"><span id="attack-count">0</span> ACTIVE</span>
             </div>
         </div>
     </header>
@@ -84,52 +134,56 @@
     <!-- Main Layout -->
     <div class="main-layout flex h-[calc(100vh-57px)]">
         <!-- Left Panel: Devices -->
-        <div class="left-panel w-2/3 border-r border-gray-800 flex flex-col">
+        <div class="left-panel w-[65%] border-r border-white/5 flex flex-col">
             <!-- Toolbar -->
-            <div class="px-4 md:px-6 py-3 border-b border-gray-800 flex items-center gap-2 flex-wrap">
-                <button onclick="runScan(false)" class="px-3 py-1.5 bg-neon-blue/10 border border-neon-blue/30 text-neon-blue rounded-lg hover:bg-neon-blue/20 transition text-xs font-medium">
-                    Scan
+            <div class="px-5 py-3 border-b border-white/5 flex items-center gap-2 flex-wrap">
+                <button onclick="runScan(false)" class="btn btn-primary px-4 py-1.5 text-white rounded-lg text-xs font-medium shadow-sm">
+                    <svg class="w-3.5 h-3.5 inline mr-1" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>Scan
                 </button>
-                <button onclick="runScan(true)" class="px-3 py-1.5 bg-neon-purple/10 border border-neon-purple/30 text-neon-purple rounded-lg hover:bg-neon-purple/20 transition text-xs font-medium">
+                <button onclick="runScan(true)" class="btn glass glass-hover px-4 py-1.5 text-purple-300 rounded-lg text-xs font-medium">
                     Deep Scan
                 </button>
-                <button onclick="fullScan()" class="px-3 py-1.5 bg-neon-green/10 border border-neon-green/30 text-neon-green rounded-lg hover:bg-neon-green/20 transition text-xs font-medium">
+                <button onclick="fullScan()" class="btn glass glass-hover px-4 py-1.5 text-cyan-300 rounded-lg text-xs font-medium">
                     Full Recon
                 </button>
-                <button onclick="nukeNetwork('all')" class="px-3 py-1.5 bg-neon-red/10 border border-neon-red/30 text-neon-red rounded-lg hover:bg-neon-red/20 transition text-xs font-medium">
-                    NUKE
+                <div class="w-px h-5 bg-white/10 mx-1"></div>
+                <button onclick="nukeNetwork('all')" class="btn glass glass-hover px-3 py-1.5 text-red-400 rounded-lg text-xs font-medium">
+                    Nuke
                 </button>
-                <button onclick="nukeNetwork('gateway')" class="px-3 py-1.5 bg-neon-yellow/10 border border-neon-yellow/30 text-neon-yellow rounded-lg hover:bg-neon-yellow/20 transition text-xs font-medium">
+                <button onclick="nukeNetwork('gateway')" class="btn glass glass-hover px-3 py-1.5 text-orange-400 rounded-lg text-xs font-medium">
                     Kill GW
                 </button>
-                <button onclick="toggleMonitor()" id="monitor-btn" class="px-3 py-1.5 bg-green-900/10 border border-green-700/30 text-green-400 rounded-lg hover:bg-green-900/20 transition text-xs font-medium">
+                <div class="w-px h-5 bg-white/10 mx-1"></div>
+                <button onclick="toggleMonitor()" id="monitor-btn" class="btn glass glass-hover px-3 py-1.5 text-emerald-400 rounded-lg text-xs font-medium">
                     Monitor
                 </button>
-                <button onclick="exportReport()" class="px-3 py-1.5 bg-gray-700/30 border border-gray-600 text-gray-300 rounded-lg hover:bg-gray-600/30 transition text-xs font-medium">
-                    Report
+                <button onclick="exportReport()" class="btn glass glass-hover px-3 py-1.5 text-gray-400 rounded-lg text-xs font-medium">
+                    Export
                 </button>
-                <button onclick="stopAllAttacks()" id="stop-all-btn" class="hidden px-3 py-1.5 bg-gray-700 border border-gray-600 text-white rounded-lg hover:bg-gray-600 transition text-xs font-medium">
-                    STOP ALL
+                <button onclick="stopAllAttacks()" id="stop-all-btn" class="hidden btn btn-danger px-3 py-1.5 text-white rounded-lg text-xs font-medium">
+                    Stop All
                 </button>
-                <div id="scan-status" class="ml-auto text-xs text-gray-500"></div>
+                <div id="scan-status" class="ml-auto text-[11px] text-gray-500 mono"></div>
             </div>
 
             <!-- View Tabs -->
-            <div class="flex border-b border-gray-800 px-4">
-                <button onclick="switchView('grid')" id="view-grid" class="px-3 py-2 text-xs font-medium text-neon-blue border-b-2 border-neon-blue">Devices</button>
-                <button onclick="switchView('topology')" id="view-topology" class="px-3 py-2 text-xs font-medium text-gray-500 border-b-2 border-transparent hover:text-gray-300">Topology</button>
-                <button onclick="switchView('vulns')" id="view-vulns" class="px-3 py-2 text-xs font-medium text-gray-500 border-b-2 border-transparent hover:text-gray-300">Vulnerabilities</button>
+            <div class="flex border-b border-white/5 px-5 gap-1">
+                <button onclick="switchView('grid')" id="view-grid" class="px-4 py-2.5 text-xs font-medium border-b-2 tab-active transition-colors">Devices</button>
+                <button onclick="switchView('topology')" id="view-topology" class="px-4 py-2.5 text-xs font-medium border-b-2 tab-inactive transition-colors">Topology</button>
+                <button onclick="switchView('vulns')" id="view-vulns" class="px-4 py-2.5 text-xs font-medium border-b-2 tab-inactive transition-colors">Vulnerabilities</button>
             </div>
 
             <!-- Device Grid View -->
-            <div id="view-grid-panel" class="flex-1 overflow-y-auto p-4 md:p-6">
-                <div id="devices-grid" class="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4">
-                    <div id="empty-state" class="col-span-full flex flex-col items-center justify-center py-20 text-gray-500">
-                        <svg class="w-16 h-16 mb-4 opacity-30" fill="currentColor" viewBox="0 0 20 20">
-                            <path fill-rule="evenodd" d="M5.05 3.636a1 1 0 010 1.414 7 7 0 000 9.9 1 1 0 11-1.414 1.414 9 9 0 010-12.728 1 1 0 011.414 0zm9.9 0a1 1 0 011.414 0 9 9 0 010 12.728 1 1 0 11-1.414-1.414 7 7 0 000-9.9 1 1 0 010-1.414zM7.879 6.464a1 1 0 010 1.414 3 3 0 000 4.243 1 1 0 11-1.415 1.414 5 5 0 010-7.07 1 1 0 011.415 0zm4.242 0a1 1 0 011.415 0 5 5 0 010 7.072 1 1 0 01-1.415-1.415 3 3 0 000-4.242 1 1 0 010-1.415zM10 9a1 1 0 100 2 1 1 0 000-2z"/>
-                        </svg>
-                        <p class="text-lg">No devices discovered</p>
-                        <p class="text-sm mt-1">Click "Scan" to discover devices</p>
+            <div id="view-grid-panel" class="flex-1 overflow-y-auto p-5">
+                <div id="devices-grid" class="grid grid-cols-1 lg:grid-cols-2 2xl:grid-cols-3 gap-3">
+                    <div id="empty-state" class="col-span-full flex flex-col items-center justify-center py-24 text-gray-600">
+                        <div class="w-20 h-20 rounded-2xl glass flex items-center justify-center mb-5">
+                            <svg class="w-10 h-10 text-gray-600" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" d="M8.288 15.038a5.25 5.25 0 017.424 0M5.106 11.856c3.807-3.808 9.98-3.808 13.788 0M1.924 8.674c5.565-5.565 14.587-5.565 20.152 0M12 18h.008"/>
+                            </svg>
+                        </div>
+                        <p class="text-base font-medium text-gray-500">No devices discovered</p>
+                        <p class="text-sm mt-1 text-gray-600">Run a scan to map the network</p>
                     </div>
                 </div>
             </div>
@@ -140,43 +194,43 @@
             </div>
 
             <!-- Vulnerabilities View -->
-            <div id="view-vulns-panel" class="flex-1 overflow-y-auto p-4 md:p-6 hidden">
+            <div id="view-vulns-panel" class="flex-1 overflow-y-auto p-5 hidden">
                 <div id="vulns-content" class="space-y-3">
-                    <p class="text-gray-500">Run a Deep Scan or Full Recon to detect vulnerabilities.</p>
+                    <p class="text-gray-600 text-sm">Run a Deep Scan or Full Recon to detect vulnerabilities.</p>
                 </div>
             </div>
         </div>
 
         <!-- Right Panel: Logs & Details -->
-        <div class="right-panel w-1/3 flex flex-col">
-            <div class="flex border-b border-gray-800">
-                <button onclick="switchTab('logs')" id="tab-logs" class="flex-1 px-4 py-3 text-sm font-medium text-neon-green border-b-2 border-neon-green">
+        <div class="right-panel w-[35%] flex flex-col bg-bg-800/50">
+            <div class="flex border-b border-white/5">
+                <button onclick="switchTab('logs')" id="tab-logs" class="flex-1 px-4 py-3 text-xs font-medium border-b-2 tab-active transition-colors">
                     Live Feed
                 </button>
-                <button onclick="switchTab('details')" id="tab-details" class="flex-1 px-4 py-3 text-sm font-medium text-gray-500 border-b-2 border-transparent hover:text-gray-300">
+                <button onclick="switchTab('details')" id="tab-details" class="flex-1 px-4 py-3 text-xs font-medium border-b-2 tab-inactive transition-colors">
                     Details
                 </button>
             </div>
 
             <!-- Logs Panel -->
-            <div id="panel-logs" class="flex-1 overflow-y-auto p-4 mono text-xs">
-                <div id="log-entries" class="space-y-1">
-                    <div class="text-gray-600">[system] Specter v0.2.0 ready. Scan to begin.</div>
+            <div id="panel-logs" class="flex-1 overflow-y-auto p-4 mono text-[11px]">
+                <div id="log-entries" class="space-y-0.5">
+                    <div class="text-gray-600 py-0.5">[system] Specter v0.3.0 ready</div>
                 </div>
             </div>
 
             <!-- Details Panel -->
             <div id="panel-details" class="flex-1 overflow-y-auto p-4 hidden">
-                <div id="device-details" class="text-gray-500 text-sm">
-                    Select a device to view details.
+                <div id="device-details" class="text-gray-500 text-sm flex items-center justify-center h-full">
+                    <p class="text-center">Select a device to view details</p>
                 </div>
             </div>
         </div>
     </div>
 
     <!-- Modal -->
-    <div id="modal" class="fixed inset-0 bg-black/70 hidden items-center justify-center z-50" onclick="closeModal(event)">
-        <div class="bg-specter-800 border border-gray-700 rounded-xl w-[90vw] max-w-[600px] max-h-[80vh] overflow-y-auto" onclick="event.stopPropagation()">
+    <div id="modal" class="fixed inset-0 bg-black/60 backdrop-blur-sm hidden items-center justify-center z-50" onclick="closeModal(event)">
+        <div class="glass bg-bg-800/90 rounded-2xl w-[90vw] max-w-[600px] max-h-[80vh] overflow-y-auto shadow-2xl" onclick="event.stopPropagation()">
             <div id="modal-content" class="p-6"></div>
         </div>
     </div>
@@ -191,24 +245,28 @@
         let vulnerabilities = {};
         let osResults = {};
 
-        // ========== Toast System ==========
+        // ========== Toast ==========
         function showToast(message, type = 'info', duration = 4000) {
             const container = document.getElementById('toast-container');
-            const colors = {
-                info: 'bg-blue-900/90 border-blue-700 text-blue-200',
-                success: 'bg-green-900/90 border-green-700 text-green-200',
-                error: 'bg-red-900/90 border-red-700 text-red-200',
-                warning: 'bg-yellow-900/90 border-yellow-700 text-yellow-200',
-                attack: 'bg-red-900/90 border-red-500 text-red-100',
+            const styles = {
+                info: 'bg-blue-950/90 border-blue-800/50 text-blue-200',
+                success: 'bg-emerald-950/90 border-emerald-800/50 text-emerald-200',
+                error: 'bg-red-950/90 border-red-800/50 text-red-200',
+                warning: 'bg-amber-950/90 border-amber-800/50 text-amber-200',
+                attack: 'bg-red-950/90 border-red-500/50 text-red-100',
+            };
+            const icons = {
+                info: '<svg class="w-4 h-4 shrink-0" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z"/></svg>',
+                success: '<svg class="w-4 h-4 shrink-0" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"/></svg>',
+                error: '<svg class="w-4 h-4 shrink-0" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z"/></svg>',
+                warning: '<svg class="w-4 h-4 shrink-0" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z"/></svg>',
+                attack: '<svg class="w-4 h-4 shrink-0" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M11.3 1.046A1 1 0 0112 2v5h4a1 1 0 01.82 1.573l-7 10A1 1 0 018 18v-5H4a1 1 0 01-.82-1.573l7-10a1 1 0 011.12-.38z"/></svg>',
             };
             const el = document.createElement('div');
-            el.className = `toast px-4 py-3 rounded-lg border text-sm ${colors[type] || colors.info}`;
-            el.textContent = message;
+            el.className = `toast glass px-4 py-3 rounded-xl border text-sm flex items-center gap-2.5 ${styles[type] || styles.info}`;
+            el.innerHTML = `${icons[type] || icons.info}<span>${message}</span>`;
             container.appendChild(el);
-            setTimeout(() => {
-                el.classList.add('toast-exit');
-                setTimeout(() => el.remove(), 300);
-            }, duration);
+            setTimeout(() => { el.classList.add('toast-exit'); setTimeout(() => el.remove(), 300); }, duration);
         }
 
         // ========== WebSocket ==========
@@ -217,14 +275,14 @@
             ws = new WebSocket(`${protocol}//${window.location.host}/ws`);
             ws.onopen = () => {
                 document.getElementById('status-indicator').innerHTML = `
-                    <div class="w-2 h-2 rounded-full bg-neon-green pulse"></div>
-                    <span class="text-xs text-gray-400">Connected</span>`;
+                    <div class="w-2 h-2 rounded-full bg-emerald-400 pulse-soft"></div>
+                    <span class="text-[11px] text-gray-500">Live</span>`;
             };
             ws.onmessage = (event) => handleWSEvent(JSON.parse(event.data));
             ws.onclose = () => {
                 document.getElementById('status-indicator').innerHTML = `
-                    <div class="w-2 h-2 rounded-full bg-red-500"></div>
-                    <span class="text-xs text-gray-400">Disconnected</span>`;
+                    <div class="w-2 h-2 rounded-full bg-red-400"></div>
+                    <span class="text-[11px] text-gray-500">Offline</span>`;
                 setTimeout(connectWS, 3000);
             };
         }
@@ -245,24 +303,24 @@
                 case 'attack_start':
                     attacks[msg.data.id] = msg.data;
                     updateAttackUI();
-                    showToast(`Attack started: ${msg.data.type} on ${msg.data.target}`, 'attack');
+                    showToast(`${msg.data.type.toUpperCase()} on ${msg.data.target}`, 'attack');
                     break;
                 case 'attack_stop':
                     delete attacks[msg.data.id];
                     updateAttackUI();
-                    showToast(`Attack stopped: ${msg.data.id}`, 'info');
+                    showToast(`Attack stopped`, 'info');
                     break;
             }
         }
 
-        // ========== API Calls ==========
+        // ========== API ==========
         async function apiCall(url, options = {}) {
             try {
                 const resp = await fetch(url, options);
                 if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
                 return await resp.json();
             } catch(e) {
-                showToast(`Request failed: ${e.message}`, 'error');
+                showToast(`Failed: ${e.message}`, 'error');
                 return null;
             }
         }
@@ -276,18 +334,17 @@
             });
             if (data) {
                 devices = data.devices;
-                renderDevices();
-                renderTopology();
-                document.getElementById('scan-status').textContent = `${devices.length} devices found`;
-                showToast(`Scan complete: ${devices.length} devices`, 'success');
+                renderDevices(); renderTopology();
+                document.getElementById('scan-status').textContent = `${devices.length} devices`;
+                showToast(`${devices.length} devices discovered`, 'success');
             } else {
-                document.getElementById('scan-status').textContent = 'Scan failed';
+                document.getElementById('scan-status').textContent = '';
             }
         }
 
         async function fullScan() {
-            document.getElementById('scan-status').textContent = 'Full recon in progress...';
-            showToast('Full recon: ARP + ports + OS detection + vulnerabilities', 'info', 6000);
+            document.getElementById('scan-status').textContent = 'Full recon...';
+            showToast('Running full reconnaissance', 'info', 5000);
             const data = await apiCall('/api/scan', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
@@ -295,51 +352,23 @@
             });
             if (data) {
                 devices = data.devices;
-                renderDevices();
-                renderTopology();
-                renderVulns();
-                document.getElementById('scan-status').textContent = `${devices.length} devices — full recon complete`;
+                renderDevices(); renderTopology(); renderVulns();
+                document.getElementById('scan-status').textContent = `${devices.length} devices — recon complete`;
                 showToast('Full recon complete', 'success');
             }
         }
 
-        async function killDevice(ip) {
-            await apiCall('/api/kill', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({target_ip: ip})
-            });
-        }
-
+        async function killDevice(ip) { await apiCall('/api/kill', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({target_ip: ip}) }); }
         async function nukeNetwork(mode) {
-            if (!confirm(`Disconnect ${mode === 'all' ? 'ALL devices' : 'the gateway'}?`)) return;
-            await apiCall('/api/nuke', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({mode: mode})
-            });
+            if (!confirm(`${mode === 'all' ? 'Disconnect ALL devices' : 'Kill gateway access'}?`)) return;
+            await apiCall('/api/nuke', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({mode: mode}) });
         }
-
-        async function startMITM(ip, opts = {}) {
-            await apiCall('/api/mitm', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({target_ip: ip, dns_spoof: opts.dnsSpoof || false, harvest_creds: opts.harvestCreds || false})
-            });
-        }
-
-        async function stopAttack(attackId) {
-            await apiCall(`/api/stop/${attackId}`, {method: 'POST'});
-            delete attacks[attackId];
-            updateAttackUI();
-        }
-
-        async function stopAllAttacks() {
-            for (const id of Object.keys(attacks)) await stopAttack(id);
-        }
+        async function startMITM(ip, opts = {}) { await apiCall('/api/mitm', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({target_ip: ip, dns_spoof: opts.dnsSpoof || false, harvest_creds: opts.harvestCreds || false}) }); }
+        async function stopAttack(attackId) { await apiCall(`/api/stop/${attackId}`, {method: 'POST'}); delete attacks[attackId]; updateAttackUI(); }
+        async function stopAllAttacks() { for (const id of Object.keys(attacks)) await stopAttack(id); }
 
         async function portScan(ip) {
-            showToast(`Port scanning ${ip}...`, 'info');
+            showToast(`Scanning ports on ${ip}`, 'info');
             const data = await apiCall(`/api/portscan?target_ip=${ip}`, {method: 'POST'});
             if (data) {
                 const dev = devices.find(d => d.ip === ip);
@@ -347,19 +376,19 @@
                 if (data.vulnerabilities && data.vulnerabilities.length > 0) {
                     vulnerabilities[ip] = data.vulnerabilities;
                     renderVulns();
-                    showToast(`Found ${data.vulnerabilities.length} vulnerabilities on ${ip}`, 'warning');
+                    showToast(`${data.vulnerabilities.length} vulns on ${ip}`, 'warning');
                 }
             }
         }
 
         async function osFingerprint(ip) {
-            showToast(`OS fingerprinting ${ip}...`, 'info');
+            showToast(`Detecting OS on ${ip}`, 'info');
             const data = await apiCall(`/api/os-fingerprint?target_ip=${ip}`, {method: 'POST'});
             if (data) {
                 osResults[ip] = data;
                 const dev = devices.find(d => d.ip === ip);
                 if (dev) { dev.os = data.os_family; renderDevices(); }
-                showToast(`OS: ${data.os_family} (${(data.confidence*100).toFixed(0)}%)`, 'success');
+                showToast(`${data.os_family} (${(data.confidence*100).toFixed(0)}%)`, 'success');
             }
         }
 
@@ -373,97 +402,81 @@
                 await apiCall('/api/monitor/start', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({interval: 30})});
                 monitoring = true;
                 document.getElementById('monitor-badge').classList.remove('hidden');
-                document.getElementById('monitor-btn').textContent = 'Stop Mon.';
-                showToast('Network monitoring active', 'success');
+                document.getElementById('monitor-btn').textContent = 'Stop Mon';
+                showToast('Network monitor active', 'success');
             }
         }
 
-        async function exportReport() {
-            window.open('/api/report', '_blank');
-        }
+        async function exportReport() { window.open('/api/report', '_blank'); }
 
         async function castAction(ip, action) {
-            const data = await apiCall('/api/cast', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({target_ip: ip, action: action})
-            });
-            if (data && data.data) showModal('Device Info', `<pre class="mono text-xs overflow-auto max-h-96 text-gray-300">${JSON.stringify(data.data, null, 2)}</pre>`);
+            const data = await apiCall('/api/cast', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({target_ip: ip, action: action}) });
+            if (data && data.data) showModal('Cast Device', `<pre class="mono text-xs overflow-auto max-h-96 text-gray-300 bg-bg-900 rounded-xl p-4">${JSON.stringify(data.data, null, 2)}</pre>`);
         }
 
-        async function tvAction(ip, action) {
-            await apiCall('/api/tv', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({target_ip: ip, action: action})
-            });
-        }
+        async function tvAction(ip, action) { await apiCall('/api/tv', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({target_ip: ip, action: action}) }); }
 
         // ========== Rendering ==========
+        function getDeviceIcon(dev) {
+            const types = {
+                'Router': { icon: '<path stroke-linecap="round" stroke-linejoin="round" d="M8.288 15.038a5.25 5.25 0 017.424 0M5.106 11.856c3.807-3.808 9.98-3.808 13.788 0M1.924 8.674c5.565-5.565 14.587-5.565 20.152 0M12 18h.008v.008H12V18z"/>', color: 'text-emerald-400', bg: 'bg-emerald-500/10' },
+                'Google Cast': { icon: '<path stroke-linecap="round" d="M3 12a9 9 0 019-9 9 9 0 019 9m-9 9a9 9 0 01-9-9m9 9c0-4.97-4.03-9-9-9m9 9h.01"/>', color: 'text-blue-400', bg: 'bg-blue-500/10' },
+                'Samsung Device': { icon: '<rect x="5" y="2" width="14" height="20" rx="2"/><path stroke-linecap="round" d="M12 18h.01"/>', color: 'text-purple-400', bg: 'bg-purple-500/10' },
+                'Printer': { icon: '<path stroke-linecap="round" d="M6.72 13.829c-.24.03-.48.062-.72.096m.72-.096a42.415 42.415 0 0110.56 0m-10.56 0L6.34 18m10.94-4.171c.24.03.48.062.72.096m-.72-.096L17.66 18m0 0l.229 2.523a1.125 1.125 0 01-1.12 1.227H7.231c-.662 0-1.18-.568-1.12-1.227L6.34 18m11.318 0h1.091A2.25 2.25 0 0021 15.75V9.456c0-1.081-.768-2.015-1.837-2.175a48.055 48.055 0 00-1.913-.247M6.34 18H5.25A2.25 2.25 0 013 15.75V9.456c0-1.081.768-2.015 1.837-2.175a48.041 48.041 0 011.913-.247m10.5 0a48.536 48.536 0 00-10.5 0m10.5 0V3.375c0-.621-.504-1.125-1.125-1.125h-8.25c-.621 0-1.125.504-1.125 1.125v3.659"/>', color: 'text-amber-400', bg: 'bg-amber-500/10' },
+                'Phone': { icon: '<rect x="7" y="2" width="10" height="20" rx="2"/><path stroke-linecap="round" d="M12 18h.01"/>', color: 'text-pink-400', bg: 'bg-pink-500/10' },
+                'Computer': { icon: '<path stroke-linecap="round" d="M9 17.25v1.007a3 3 0 01-.879 2.122L7.5 21h9l-.621-.621A3 3 0 0115 18.257V17.25m6-12V15a2.25 2.25 0 01-2.25 2.25H5.25A2.25 2.25 0 013 15V5.25A2.25 2.25 0 015.25 3h13.5A2.25 2.25 0 0121 5.25z"/>', color: 'text-cyan-400', bg: 'bg-cyan-500/10' },
+            };
+            const t = types[dev.device_type] || { icon: '<circle cx="12" cy="12" r="3"/><path stroke-linecap="round" d="M12 2v4m0 12v4m10-10h-4M6 12H2"/>', color: 'text-gray-400', bg: 'bg-gray-500/10' };
+            return `<div class="w-9 h-9 ${t.bg} rounded-xl flex items-center justify-center shrink-0 border border-white/5"><svg class="w-4.5 h-4.5 ${t.color}" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">${t.icon}</svg></div>`;
+        }
+
         function renderDevices() {
             const grid = document.getElementById('devices-grid');
             const empty = document.getElementById('empty-state');
             if (devices.length === 0) { empty.classList.remove('hidden'); return; }
             empty.classList.add('hidden');
 
-            grid.innerHTML = devices.map(dev => {
+            grid.innerHTML = devices.map((dev, i) => {
                 const attackEntry = Object.entries(attacks).find(([id, a]) => a.target === dev.ip);
                 const isAttacked = !!attackEntry;
                 const attackId = attackEntry ? attackEntry[0] : null;
                 const attackType = attackEntry ? attackEntry[1].type : '';
-                const borderColor = isAttacked ? 'border-neon-red glow-red' :
-                    dev.device_type === 'Google Cast' ? 'border-neon-blue/30' :
-                    dev.device_type === 'Samsung Device' ? 'border-neon-purple/30' : 'border-gray-700';
 
                 return `
-                    <div class="device-card bg-specter-800 border ${borderColor} rounded-xl p-4 cursor-pointer hover:border-gray-500 transition"
+                    <div class="device-card glass rounded-xl p-4 cursor-pointer fade-up ${isAttacked ? 'border-red-500/30 glow-attack' : ''}"
+                         style="animation-delay: ${i * 30}ms"
                          onclick="selectDevice('${dev.ip}')">
-                        <div class="flex items-start justify-between mb-2">
-                            <div class="flex items-center gap-2 min-w-0">
+                        <div class="flex items-start justify-between mb-3">
+                            <div class="flex items-center gap-2.5 min-w-0">
                                 ${getDeviceIcon(dev)}
                                 <div class="min-w-0">
                                     <div class="text-sm font-semibold text-white truncate">${dev.name || dev.ip}</div>
-                                    <div class="text-xs text-gray-400 truncate">${dev.name ? dev.ip + ' — ' : ''}${dev.device_type}${dev.os ? ' (' + dev.os + ')' : ''}</div>
+                                    <div class="text-[11px] text-gray-500 truncate">${dev.name ? dev.ip : dev.device_type}${dev.os ? ' · ' + dev.os : ''}</div>
                                 </div>
                             </div>
                             <div class="flex items-center gap-1 shrink-0">
-                                ${isAttacked ? `
-                                    <span class="px-1.5 py-0.5 text-[10px] font-bold uppercase bg-red-900/50 text-neon-red border border-red-800 rounded">${attackType}</span>
-                                    <button onclick="event.stopPropagation(); stopAttack('${attackId}')" class="ml-1 w-5 h-5 flex items-center justify-center bg-gray-700 rounded hover:bg-gray-600 text-gray-300 text-xs" title="Stop">x</button>
-                                ` : ''}
-                                ${dev.vuln_count > 0 ? `<span class="px-1.5 py-0.5 text-[10px] font-bold bg-orange-900/50 text-neon-orange border border-orange-800 rounded">${dev.vuln_count} vuln</span>` : ''}
+                                ${isAttacked ? `<span class="px-1.5 py-0.5 text-[9px] font-bold uppercase bg-red-500/15 text-red-400 border border-red-500/30 rounded-md">${attackType}</span>` : ''}
+                                ${dev.vuln_count > 0 ? `<span class="px-1.5 py-0.5 text-[9px] font-bold bg-orange-500/15 text-orange-400 border border-orange-500/30 rounded-md">${dev.vuln_count}</span>` : ''}
                             </div>
                         </div>
-                        <div class="space-y-1 text-xs">
-                            <div class="flex justify-between"><span class="text-gray-500">MAC</span><span class="mono text-gray-300">${dev.mac}</span></div>
-                            <div class="flex justify-between"><span class="text-gray-500">Vendor</span><span class="text-gray-300 truncate ml-2">${dev.vendor}</span></div>
-                            ${dev.services.length > 0 ? `<div class="flex justify-between"><span class="text-gray-500">Services</span><span class="text-neon-blue truncate ml-2">${dev.services.slice(0,3).join(', ')}${dev.services.length > 3 ? '...' : ''}</span></div>` : ''}
-                            ${dev.open_ports && dev.open_ports.length > 0 ? `<div class="mt-1 pt-1 border-t border-gray-700"><span class="text-gray-500">Ports:</span> <span class="text-neon-green mono">${dev.open_ports.map(p => p.port).join(', ')}</span></div>` : ''}
+                        <div class="space-y-1.5 text-[11px]">
+                            <div class="flex justify-between"><span class="text-gray-500">MAC</span><span class="mono text-gray-400">${dev.mac}</span></div>
+                            <div class="flex justify-between"><span class="text-gray-500">Vendor</span><span class="text-gray-400 truncate ml-3">${dev.vendor}</span></div>
+                            ${dev.services.length > 0 ? `<div class="flex justify-between"><span class="text-gray-500">Services</span><span class="text-blue-400/80 truncate ml-3">${dev.services.slice(0,3).join(', ')}</span></div>` : ''}
+                            ${dev.open_ports && dev.open_ports.length > 0 ? `<div class="mt-2 pt-2 border-t border-white/5 flex flex-wrap gap-1">${dev.open_ports.slice(0,6).map(p => `<span class="px-1.5 py-0.5 text-[9px] mono rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">${p.port}</span>`).join('')}${dev.open_ports.length > 6 ? `<span class="px-1.5 py-0.5 text-[9px] text-gray-500">+${dev.open_ports.length - 6}</span>` : ''}</div>` : ''}
                         </div>
-                        <div class="mt-2 pt-2 border-t border-gray-700 flex gap-1.5 flex-wrap">
-                            <button onclick="event.stopPropagation(); killDevice('${dev.ip}')" class="px-2 py-1 text-[10px] bg-red-900/30 text-neon-red border border-red-800 rounded hover:bg-red-900/60">Kill</button>
-                            <button onclick="event.stopPropagation(); startMITM('${dev.ip}', {harvestCreds: true})" class="px-2 py-1 text-[10px] bg-yellow-900/30 text-neon-yellow border border-yellow-800 rounded hover:bg-yellow-900/60">MITM</button>
-                            <button onclick="event.stopPropagation(); portScan('${dev.ip}')" class="px-2 py-1 text-[10px] bg-blue-900/30 text-neon-blue border border-blue-800 rounded hover:bg-blue-900/60">Ports</button>
-                            <button onclick="event.stopPropagation(); osFingerprint('${dev.ip}')" class="px-2 py-1 text-[10px] bg-green-900/30 text-green-400 border border-green-800 rounded hover:bg-green-900/60">OS</button>
-                            ${dev.device_type === 'Google Cast' ? `<button onclick="event.stopPropagation(); castAction('${dev.ip}', 'info')" class="px-2 py-1 text-[10px] bg-cyan-900/30 text-cyan-400 border border-cyan-800 rounded hover:bg-cyan-900/60">Cast</button>` : ''}
-                            ${dev.device_type === 'Samsung Device' ? `<button onclick="event.stopPropagation(); tvAction('${dev.ip}', 'off')" class="px-2 py-1 text-[10px] bg-purple-900/30 text-neon-purple border border-purple-800 rounded hover:bg-purple-900/60">TV Off</button>` : ''}
+                        <div class="mt-3 pt-3 border-t border-white/5 flex gap-1.5 flex-wrap">
+                            <button onclick="event.stopPropagation(); killDevice('${dev.ip}')" class="px-2 py-1 text-[10px] font-medium text-red-400 bg-red-500/10 border border-red-500/20 rounded-md hover:bg-red-500/20 transition">Kill</button>
+                            <button onclick="event.stopPropagation(); startMITM('${dev.ip}', {harvestCreds: true})" class="px-2 py-1 text-[10px] font-medium text-amber-400 bg-amber-500/10 border border-amber-500/20 rounded-md hover:bg-amber-500/20 transition">MITM</button>
+                            <button onclick="event.stopPropagation(); portScan('${dev.ip}')" class="px-2 py-1 text-[10px] font-medium text-blue-400 bg-blue-500/10 border border-blue-500/20 rounded-md hover:bg-blue-500/20 transition">Ports</button>
+                            <button onclick="event.stopPropagation(); osFingerprint('${dev.ip}')" class="px-2 py-1 text-[10px] font-medium text-cyan-400 bg-cyan-500/10 border border-cyan-500/20 rounded-md hover:bg-cyan-500/20 transition">OS</button>
+                            ${isAttacked ? `<button onclick="event.stopPropagation(); stopAttack('${attackId}')" class="px-2 py-1 text-[10px] font-medium text-gray-300 bg-gray-500/10 border border-gray-500/20 rounded-md hover:bg-gray-500/20 transition ml-auto">Stop</button>` : ''}
                         </div>
                     </div>`;
             }).join('');
         }
 
-        function getDeviceIcon(dev) {
-            const icons = {
-                'Google Cast': {bg: 'bg-blue-900/50', color: 'text-neon-blue'},
-                'Samsung Device': {bg: 'bg-purple-900/50', color: 'text-neon-purple'},
-                'Printer': {bg: 'bg-yellow-900/50', color: 'text-neon-yellow'},
-                'Router': {bg: 'bg-green-900/50', color: 'text-neon-green'},
-            };
-            const style = icons[dev.device_type] || {bg: 'bg-gray-700', color: 'text-gray-400'};
-            return `<div class="w-8 h-8 ${style.bg} rounded-lg flex items-center justify-center shrink-0"><svg class="w-4 h-4 ${style.color}" fill="currentColor" viewBox="0 0 20 20"><circle cx="10" cy="10" r="5"/></svg></div>`;
-        }
-
-        // ========== Topology Graph ==========
+        // ========== Topology ==========
         function renderTopology() {
             const svg = document.getElementById('topology-svg');
             if (!svg || devices.length === 0) return;
@@ -472,9 +485,13 @@
             const cx = w / 2, cy = h / 2;
             const radius = Math.min(w, h) * 0.35;
 
-            // Gateway in center
-            let html = `<circle cx="${cx}" cy="${cy}" r="20" fill="#1a1a2e" stroke="#00ff88" stroke-width="2" class="topo-node"/>`;
-            html += `<text x="${cx}" y="${cy + 4}" text-anchor="middle" fill="#00ff88" font-size="10" font-family="monospace">GW</text>`;
+            let html = `
+                <defs>
+                    <radialGradient id="gw-glow"><stop offset="0%" stop-color="rgba(16,185,129,0.2)"/><stop offset="100%" stop-color="transparent"/></radialGradient>
+                </defs>
+                <circle cx="${cx}" cy="${cy}" r="40" fill="url(#gw-glow)"/>
+                <circle cx="${cx}" cy="${cy}" r="18" fill="#0c0c12" stroke="#10b981" stroke-width="2" class="topo-node"/>
+                <text x="${cx}" y="${cy + 4}" text-anchor="middle" fill="#10b981" font-size="9" font-family="JetBrains Mono">GW</text>`;
 
             devices.forEach((dev, i) => {
                 const angle = (2 * Math.PI * i) / devices.length - Math.PI / 2;
@@ -482,40 +499,45 @@
                 const y = cy + radius * Math.sin(angle);
                 const isAttacked = Object.values(attacks).some(a => a.target === dev.ip);
                 const lineClass = isAttacked ? 'topo-line-active' : 'topo-line';
-                const nodeColor = isAttacked ? '#ff3b3b' : dev.device_type === 'Google Cast' ? '#00bfff' : dev.device_type === 'Samsung Device' ? '#b44dff' : '#666';
+                const nodeColor = isAttacked ? '#ef4444' : dev.device_type === 'Google Cast' ? '#3b82f6' : dev.device_type === 'Samsung Device' ? '#8b5cf6' : '#4b5563';
 
                 html += `<line x1="${cx}" y1="${cy}" x2="${x}" y2="${y}" class="${lineClass}"/>`;
-                html += `<circle cx="${x}" cy="${y}" r="12" fill="#12121a" stroke="${nodeColor}" stroke-width="2" class="topo-node" onclick="selectDevice('${dev.ip}')"/>`;
-                html += `<text x="${x}" y="${y + 20}" text-anchor="middle" fill="#999" font-size="9" font-family="monospace">${dev.name || dev.ip.split('.')[3]}</text>`;
+                html += `<circle cx="${x}" cy="${y}" r="10" fill="#0c0c12" stroke="${nodeColor}" stroke-width="1.5" class="topo-node" onclick="selectDevice('${dev.ip}')"/>`;
+                html += `<text x="${x}" y="${y + 22}" text-anchor="middle" fill="#6b7280" font-size="9" font-family="JetBrains Mono">${dev.name || dev.ip.split('.')[3]}</text>`;
             });
 
             svg.innerHTML = html;
         }
 
-        // ========== Vulnerabilities View ==========
+        // ========== Vulns ==========
         function renderVulns() {
-            // Fetch latest
             fetch('/api/vulnerabilities').then(r => r.json()).then(data => {
                 vulnerabilities = data.vulnerabilities || {};
                 const container = document.getElementById('vulns-content');
                 const allVulns = Object.entries(vulnerabilities).flatMap(([ip, vulns]) => vulns.map(v => ({...v, ip})));
 
                 if (allVulns.length === 0) {
-                    container.innerHTML = '<p class="text-gray-500">No vulnerabilities detected. Run a Deep Scan or Full Recon.</p>';
+                    container.innerHTML = '<p class="text-gray-600 text-sm">No vulnerabilities detected yet.</p>';
                     return;
                 }
 
-                const sevColors = {critical: 'text-neon-red bg-red-900/30 border-red-800', high: 'text-neon-orange bg-orange-900/30 border-orange-800', medium: 'text-neon-yellow bg-yellow-900/30 border-yellow-800', low: 'text-neon-blue bg-blue-900/30 border-blue-800', info: 'text-gray-400 bg-gray-800 border-gray-700'};
+                const sevColors = {
+                    critical: 'text-red-400 bg-red-500/10 border-red-500/20',
+                    high: 'text-orange-400 bg-orange-500/10 border-orange-500/20',
+                    medium: 'text-amber-400 bg-amber-500/10 border-amber-500/20',
+                    low: 'text-blue-400 bg-blue-500/10 border-blue-500/20',
+                    info: 'text-gray-400 bg-gray-500/10 border-gray-500/20'
+                };
                 container.innerHTML = allVulns.map(v => `
-                    <div class="bg-specter-800 border border-gray-700 rounded-lg p-3">
-                        <div class="flex items-center gap-2 mb-1">
-                            <span class="px-2 py-0.5 text-[10px] font-bold uppercase border rounded ${sevColors[v.severity] || sevColors.info}">${v.severity}</span>
+                    <div class="glass rounded-xl p-4">
+                        <div class="flex items-center gap-2 mb-2">
+                            <span class="px-2 py-0.5 text-[10px] font-bold uppercase border rounded-md ${sevColors[v.severity] || sevColors.info}">${v.severity}</span>
                             <span class="text-sm font-medium text-white">${v.title}</span>
-                            <span class="ml-auto text-xs text-gray-500 mono">${v.ip}:${v.port}</span>
+                            <span class="ml-auto text-[11px] text-gray-500 mono">${v.ip}:${v.port}</span>
                         </div>
-                        <p class="text-xs text-gray-400 mt-1">${v.description}</p>
-                        ${v.cve ? `<p class="text-xs text-neon-orange mt-1">${v.cve}</p>` : ''}
-                        <p class="text-xs text-neon-green mt-1">${v.remediation}</p>
+                        <p class="text-xs text-gray-400">${v.description}</p>
+                        ${v.cve ? `<p class="text-xs text-orange-400 mt-1.5 mono">${v.cve}</p>` : ''}
+                        <p class="text-xs text-emerald-400/80 mt-1.5">${v.remediation}</p>
                     </div>
                 `).join('');
             });
@@ -537,33 +559,48 @@
 
             panel.innerHTML = `
                 <div class="space-y-4">
-                    <div class="flex items-center justify-between">
-                        <h3 class="text-lg font-bold text-white">${dev.name || dev.ip}</h3>
-                        ${attackId ? `<button onclick="stopAttack('${attackId}')" class="px-3 py-1 text-xs bg-gray-700 text-white rounded hover:bg-gray-600">Stop</button>` : ''}
+                    <div class="flex items-center gap-3">
+                        ${getDeviceIcon(dev)}
+                        <div>
+                            <h3 class="text-base font-bold text-white">${dev.name || dev.ip}</h3>
+                            <p class="text-xs text-gray-500">${dev.device_type} · ${dev.vendor}</p>
+                        </div>
+                        ${attackId ? `<button onclick="stopAttack('${attackId}')" class="ml-auto px-3 py-1.5 text-xs bg-gray-700 text-white rounded-lg hover:bg-gray-600 transition">Stop</button>` : ''}
                     </div>
                     <div class="grid grid-cols-2 gap-2 text-xs">
-                        <div class="bg-specter-700 rounded-lg p-3"><div class="text-gray-500 mb-1">Type</div><div class="text-white font-medium">${dev.device_type}</div></div>
-                        <div class="bg-specter-700 rounded-lg p-3"><div class="text-gray-500 mb-1">Vendor</div><div class="text-white font-medium">${dev.vendor}</div></div>
-                        <div class="bg-specter-700 rounded-lg p-3"><div class="text-gray-500 mb-1">MAC</div><div class="text-white font-medium mono">${dev.mac}</div></div>
-                        <div class="bg-specter-700 rounded-lg p-3"><div class="text-gray-500 mb-1">OS</div><div class="text-white font-medium">${os ? `${os.os_family} (${(os.confidence*100).toFixed(0)}%)` : dev.os || 'Unknown'}</div></div>
+                        <div class="glass rounded-lg p-3"><div class="text-gray-500 text-[10px] mb-0.5">IP Address</div><div class="text-white font-medium mono">${dev.ip}</div></div>
+                        <div class="glass rounded-lg p-3"><div class="text-gray-500 text-[10px] mb-0.5">MAC</div><div class="text-white font-medium mono text-[11px]">${dev.mac}</div></div>
+                        <div class="glass rounded-lg p-3"><div class="text-gray-500 text-[10px] mb-0.5">OS</div><div class="text-white font-medium">${os ? `${os.os_family} (${(os.confidence*100).toFixed(0)}%)` : dev.os || '—'}</div></div>
+                        <div class="glass rounded-lg p-3"><div class="text-gray-500 text-[10px] mb-0.5">Services</div><div class="text-blue-400 font-medium">${dev.services.length || '—'}</div></div>
                     </div>
-                    ${os && os.evidence ? `<div class="bg-specter-700 rounded-lg p-3"><div class="text-gray-500 text-xs mb-1">OS Evidence</div><div class="text-xs text-gray-300 mono">${os.evidence.join('<br>')}</div></div>` : ''}
+                    ${os && os.evidence ? `<div class="glass rounded-lg p-3"><div class="text-gray-500 text-[10px] mb-1">Evidence</div><div class="text-[11px] text-gray-400 mono space-y-0.5">${os.evidence.map(e => `<div>${e}</div>`).join('')}</div></div>` : ''}
                     ${dev.open_ports && dev.open_ports.length > 0 ? `
-                    <div><h4 class="text-sm font-semibold text-gray-300 mb-2">Open Ports</h4><div class="space-y-1">${dev.open_ports.map(p => `
-                        <div class="flex items-center justify-between bg-specter-700 rounded px-3 py-2 text-xs">
-                            <span class="mono text-neon-green">${p.port}</span><span class="text-gray-400">${p.service}</span>${p.unauth ? '<span class="text-neon-red font-bold">UNAUTH</span>' : ''}
-                        </div>`).join('')}</div></div>` : ''}
+                    <div>
+                        <h4 class="text-xs font-semibold text-gray-300 mb-2">Open Ports</h4>
+                        <div class="space-y-1">${dev.open_ports.map(p => `
+                            <div class="flex items-center justify-between glass rounded-lg px-3 py-2 text-xs">
+                                <span class="mono text-emerald-400">${p.port}</span>
+                                <span class="text-gray-400">${p.service}</span>
+                                ${p.unauth ? '<span class="text-red-400 font-bold text-[10px]">NO AUTH</span>' : ''}
+                            </div>`).join('')}
+                        </div>
+                    </div>` : ''}
                     ${vulns.length > 0 ? `
-                    <div><h4 class="text-sm font-semibold text-neon-red mb-2">Vulnerabilities (${vulns.length})</h4><div class="space-y-1 text-xs">${vulns.slice(0,5).map(v => `
-                        <div class="bg-specter-700 rounded px-3 py-2"><span class="font-bold text-neon-orange">[${v.severity}]</span> ${v.title}</div>`).join('')}</div></div>` : ''}
-                    <div><h4 class="text-sm font-semibold text-gray-300 mb-2">Actions</h4>
+                    <div>
+                        <h4 class="text-xs font-semibold text-red-400 mb-2">Vulnerabilities (${vulns.length})</h4>
+                        <div class="space-y-1 text-xs">${vulns.slice(0,5).map(v => `
+                            <div class="glass rounded-lg px-3 py-2"><span class="font-bold text-orange-400">[${v.severity}]</span> ${v.title}</div>`).join('')}
+                        </div>
+                    </div>` : ''}
+                    <div>
+                        <h4 class="text-xs font-semibold text-gray-300 mb-2">Actions</h4>
                         <div class="grid grid-cols-2 gap-2">
-                            <button onclick="killDevice('${dev.ip}')" class="px-3 py-2 text-xs bg-red-900/30 text-neon-red border border-red-800 rounded-lg hover:bg-red-900/60">Kill</button>
-                            <button onclick="startMITM('${dev.ip}', {harvestCreds:true, dnsSpoof:true})" class="px-3 py-2 text-xs bg-yellow-900/30 text-neon-yellow border border-yellow-800 rounded-lg hover:bg-yellow-900/60">Full MITM</button>
-                            <button onclick="portScan('${dev.ip}')" class="px-3 py-2 text-xs bg-blue-900/30 text-neon-blue border border-blue-800 rounded-lg hover:bg-blue-900/60">Port Scan</button>
-                            <button onclick="osFingerprint('${dev.ip}')" class="px-3 py-2 text-xs bg-green-900/30 text-green-400 border border-green-800 rounded-lg hover:bg-green-900/60">OS Detect</button>
-                            ${dev.device_type === 'Google Cast' ? `<button onclick="castAction('${dev.ip}', 'info')" class="px-3 py-2 text-xs bg-cyan-900/30 text-cyan-400 border border-cyan-800 rounded-lg hover:bg-cyan-900/60">Cast Info</button>` : ''}
-                            ${dev.device_type === 'Samsung Device' ? `<button onclick="tvAction('${dev.ip}', 'off')" class="px-3 py-2 text-xs bg-purple-900/30 text-neon-purple border border-purple-800 rounded-lg hover:bg-purple-900/60">TV Off</button>` : ''}
+                            <button onclick="killDevice('${dev.ip}')" class="btn px-3 py-2 text-xs font-medium text-red-400 bg-red-500/10 border border-red-500/20 rounded-lg hover:bg-red-500/20 transition">Kill Connection</button>
+                            <button onclick="startMITM('${dev.ip}', {harvestCreds:true, dnsSpoof:true})" class="btn px-3 py-2 text-xs font-medium text-amber-400 bg-amber-500/10 border border-amber-500/20 rounded-lg hover:bg-amber-500/20 transition">Full MITM</button>
+                            <button onclick="portScan('${dev.ip}')" class="btn px-3 py-2 text-xs font-medium text-blue-400 bg-blue-500/10 border border-blue-500/20 rounded-lg hover:bg-blue-500/20 transition">Port Scan</button>
+                            <button onclick="osFingerprint('${dev.ip}')" class="btn px-3 py-2 text-xs font-medium text-cyan-400 bg-cyan-500/10 border border-cyan-500/20 rounded-lg hover:bg-cyan-500/20 transition">OS Detect</button>
+                            ${dev.device_type === 'Google Cast' ? `<button onclick="castAction('${dev.ip}', 'info')" class="btn px-3 py-2 text-xs font-medium text-blue-400 bg-blue-500/10 border border-blue-500/20 rounded-lg hover:bg-blue-500/20 transition col-span-2">Cast Info</button>` : ''}
+                            ${dev.device_type === 'Samsung Device' ? `<button onclick="tvAction('${dev.ip}', 'off')" class="btn px-3 py-2 text-xs font-medium text-purple-400 bg-purple-500/10 border border-purple-500/20 rounded-lg hover:bg-purple-500/20 transition col-span-2">TV Power Off</button>` : ''}
                         </div>
                     </div>
                 </div>`;
@@ -572,27 +609,35 @@
         // ========== Logs ==========
         function addLogEntry(entry) {
             const container = document.getElementById('log-entries');
-            const colors = {info:'text-gray-400', success:'text-neon-green', attack:'text-neon-red', mitm:'text-neon-yellow', cred:'text-neon-red font-bold', error:'text-red-400', warning:'text-neon-orange'};
+            const colors = {
+                info: 'text-gray-500',
+                success: 'text-emerald-400',
+                attack: 'text-red-400',
+                mitm: 'text-amber-400',
+                cred: 'text-red-400 font-semibold',
+                error: 'text-red-400',
+                warning: 'text-orange-400'
+            };
             const el = document.createElement('div');
-            el.className = `log-entry ${colors[entry.level] || 'text-gray-400'}`;
-            el.innerHTML = `<span class="text-gray-600">[${entry.time}]</span> <span class="text-gray-500">[${entry.level}]</span> ${entry.message}`;
+            el.className = `slide-in py-0.5 ${colors[entry.level] || 'text-gray-500'}`;
+            el.innerHTML = `<span class="text-gray-700">${entry.time}</span> <span class="text-gray-600">${entry.level}</span> ${entry.message}`;
             container.appendChild(el);
-            container.scrollTop = container.scrollHeight;
-            while (container.children.length > 300) container.removeChild(container.firstChild);
+            container.parentElement.scrollTop = container.parentElement.scrollHeight;
+            while (container.children.length > 500) container.removeChild(container.firstChild);
         }
 
         // ========== UI Helpers ==========
         function switchTab(tab) {
             document.getElementById('panel-logs').classList.toggle('hidden', tab !== 'logs');
             document.getElementById('panel-details').classList.toggle('hidden', tab !== 'details');
-            document.getElementById('tab-logs').className = `flex-1 px-4 py-3 text-sm font-medium ${tab === 'logs' ? 'text-neon-green border-b-2 border-neon-green' : 'text-gray-500 border-b-2 border-transparent hover:text-gray-300'}`;
-            document.getElementById('tab-details').className = `flex-1 px-4 py-3 text-sm font-medium ${tab === 'details' ? 'text-neon-green border-b-2 border-neon-green' : 'text-gray-500 border-b-2 border-transparent hover:text-gray-300'}`;
+            document.getElementById('tab-logs').className = `flex-1 px-4 py-3 text-xs font-medium border-b-2 transition-colors ${tab === 'logs' ? 'tab-active' : 'tab-inactive'}`;
+            document.getElementById('tab-details').className = `flex-1 px-4 py-3 text-xs font-medium border-b-2 transition-colors ${tab === 'details' ? 'tab-active' : 'tab-inactive'}`;
         }
 
         function switchView(view) {
             ['grid', 'topology', 'vulns'].forEach(v => {
                 document.getElementById(`view-${v}-panel`).classList.toggle('hidden', v !== view);
-                document.getElementById(`view-${v}`).className = `px-3 py-2 text-xs font-medium ${v === view ? 'text-neon-blue border-b-2 border-neon-blue' : 'text-gray-500 border-b-2 border-transparent hover:text-gray-300'}`;
+                document.getElementById(`view-${v}`).className = `px-4 py-2.5 text-xs font-medium border-b-2 transition-colors ${v === view ? 'tab-active' : 'tab-inactive'}`;
             });
             if (view === 'topology') renderTopology();
             if (view === 'vulns') renderVulns();
@@ -611,7 +656,7 @@
             document.getElementById('modal-content').innerHTML = `
                 <div class="flex justify-between items-center mb-4">
                     <h3 class="text-lg font-bold text-white">${title}</h3>
-                    <button onclick="document.getElementById('modal').classList.add('hidden');document.getElementById('modal').classList.remove('flex')" class="text-gray-400 hover:text-white text-xl">&times;</button>
+                    <button onclick="document.getElementById('modal').classList.add('hidden');document.getElementById('modal').classList.remove('flex')" class="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-white/5 text-gray-400 hover:text-white transition">&times;</button>
                 </div>${content}`;
             document.getElementById('modal').classList.remove('hidden');
             document.getElementById('modal').classList.add('flex');
@@ -626,17 +671,9 @@
 
         // ========== Init ==========
         connectWS();
-        fetch('/api/attacks').then(r => r.json()).then(data => {
-            data.attacks.forEach(a => { attacks[a.id] = a; });
-            updateAttackUI();
-        });
-        fetch('/api/devices').then(r => r.json()).then(data => {
-            if (data.devices.length > 0) { devices = data.devices; renderDevices(); renderTopology(); }
-        });
-        fetch('/api/monitor/status').then(r => r.json()).then(data => {
-            if (data.running) { monitoring = true; document.getElementById('monitor-badge').classList.remove('hidden'); document.getElementById('monitor-btn').textContent = 'Stop Mon.'; }
-        });
-        // Resize topology on window resize
+        fetch('/api/attacks').then(r => r.json()).then(data => { data.attacks.forEach(a => { attacks[a.id] = a; }); updateAttackUI(); });
+        fetch('/api/devices').then(r => r.json()).then(data => { if (data.devices.length > 0) { devices = data.devices; renderDevices(); renderTopology(); } });
+        fetch('/api/monitor/status').then(r => r.json()).then(data => { if (data.running) { monitoring = true; document.getElementById('monitor-badge').classList.remove('hidden'); document.getElementById('monitor-btn').textContent = 'Stop Mon'; } });
         window.addEventListener('resize', () => renderTopology());
     </script>
 </body>

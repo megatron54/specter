@@ -110,7 +110,7 @@ def resolve_names(hosts: list[dict], service_map: dict, services: list) -> dict[
     with ThreadPoolExecutor(max_workers=10) as executor:
         futures = {executor.submit(_resolve_single, ip): ip for ip in unresolved}
         try:
-            for future in as_completed(futures, timeout=10):
+            for future in as_completed(futures, timeout=6):
                 try:
                     ip, name = future.result(timeout=1)
                     if name:
@@ -159,7 +159,7 @@ def _mdns_unicast_query(ip: str) -> str | None:
 
     try:
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        sock.settimeout(0.6)
+        sock.settimeout(0.3)
         sock.sendto(packet, (ip, 5353))
         data, _ = sock.recvfrom(1024)
         sock.close()
@@ -248,7 +248,7 @@ def _ssdp_discover(ip: str) -> str | None:
 
     try:
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        sock.settimeout(0.8)
+        sock.settimeout(0.5)
         sock.sendto(msearch, (ip, 1900))
         data, _ = sock.recvfrom(2048)
         sock.close()
@@ -260,7 +260,7 @@ def _ssdp_discover(ip: str) -> str | None:
         location = re.search(r"LOCATION:\s*(http://[^\r\n]+)", response, re.IGNORECASE)
         if location:
             try:
-                resp = httpx.get(location.group(1), timeout=0.8)
+                resp = httpx.get(location.group(1), timeout=0.5)
                 if resp.status_code == 200 and "<friendlyName>" in resp.text:
                     fn = re.search(r"<friendlyName>([^<]+)</friendlyName>", resp.text)
                     if fn:

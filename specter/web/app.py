@@ -232,12 +232,12 @@ def _do_scan(req: ScanRequest) -> dict:
 
     add_log("info", f"Scanning {subnet}...")
 
-    # ARP scan
-    hosts = arp_scan(subnet, timeout=2.0)
+    # ARP scan (2 passes for reliability)
+    hosts = arp_scan(subnet, timeout=1.5, retries=2)
 
     # mDNS
     mdns = MDNSScanner()
-    services = mdns.scan(duration=3.0)
+    services = mdns.scan(duration=2.0)
     service_map: dict[str, list[str]] = {}
     for svc in services:
         service_map.setdefault(svc.host, []).append(svc.service_type)

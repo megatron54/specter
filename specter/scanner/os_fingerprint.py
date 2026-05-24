@@ -24,7 +24,7 @@ class OSFingerprint:
 def _ping_ttl(ip: str) -> int | None:
     """Send ICMP echo and return TTL from reply."""
     pkt = IP(dst=ip) / ICMP()
-    resp = sr1(pkt, timeout=2)
+    resp = sr1(pkt, timeout=0.8)
     if resp:
         return resp.ttl
     return None
@@ -36,28 +36,30 @@ def _tcp_probe(ip: str, port: int) -> dict | None:
         ("MSS", 1460), ("WScale", 7), ("NOP", None),
         ("SAckOK", b""), ("Timestamp", (12345, 0))
     ])
-    resp = sr1(pkt, timeout=2)
+    resp = sr1(pkt, timeout=0.8)
     if resp and resp.haslayer(TCP) and resp[TCP].flags & 0x12 == 0x12:
         tcp = resp[TCP]
         opts = {name: val for name, val in tcp.options}
         return {
             "window": tcp.window,
+            "ttl": resp.ttl,
             "options": opts,
             "options_order": [name for name, _ in tcp.options],
+            "df": bool(resp[IP].flags & 0x2),  # Don't Fragment bit
         }
     return None
 
 
 def _scan_ports(ip: str, ports: list[int]) -> list[int]:
     """Quick SYN scan for a set of ports, returns open ones."""
+    from scapy.all import sr
+    # Send all probes at once for speed
+    pkts = [IP(dst=ip) / TCP(dport=p, flags="S") for p in ports]
+    answered, _ = sr(pkts, timeout=1.0, verbose=0)
     open_ports = []
-    for port in ports:
-        pkt = IP(dst=ip) / TCP(dport=port, flags="S")
-        resp = sr1(pkt, timeout=1)
-        if resp and resp.haslayer(TCP) and resp[TCP].flags & 0x12 == 0x12:
-            open_ports.append(port)
-            # Send RST to close
-            sr1(IP(dst=ip) / TCP(dport=port, flags="R"), timeout=0.5)
+    for sent, recv in answered:
+        if recv.haslayer(TCP) and recv[TCP].flags & 0x12 == 0x12:
+            open_ports.append(recv[TCP].sport)
     return open_ports
 
 
@@ -109,19 +111,49 @@ def fingerprint_os(ip: str) -> OSFingerprint:
         win = probe["window"]
         opts = probe["options"]
         opts_order = probe["options_order"]
+        df = probe.get("df", False)
+
+        # Use TTL from TCP response too (more reliable than ICMP which may be blocked)
+        if ttl is None and "ttl" in probe:
+            ttl = probe["ttl"]
+            initial_ttl = _normalize_ttl(ttl)
+            result.evidence.append(f"TTL={ttl} (initial={initial_ttl}, from TCP)")
+            if initial_ttl == 128:
+                scores["Windows"] = scores.get("Windows", 0) + 0.3
+            elif initial_ttl == 64:
+                scores["Linux"] = scores.get("Linux", 0) + 0.2
+                scores["macOS"] = scores.get("macOS", 0) + 0.2
+                scores["iOS"] = scores.get("iOS", 0) + 0.1
+                scores["Android"] = scores.get("Android", 0) + 0.1
+            elif initial_ttl == 255:
+                scores["Network Device"] = scores.get("Network Device", 0) + 0.4
 
         result.evidence.append(f"TCP window={win}")
         result.evidence.append(f"TCP options order={opts_order}")
+        if df:
+            result.evidence.append("DF bit set")
 
-        # Window size heuristics
+        # Window size heuristics (expanded)
         if win in (65535, 8192, 65534):
             scores["Windows"] = scores.get("Windows", 0) + 0.25
             result.evidence.append("Window size consistent with Windows")
-        elif win in (5840, 29200, 28960):
+        elif win in (5840, 29200, 28960, 64240, 65160):
             scores["Linux"] = scores.get("Linux", 0) + 0.25
             result.evidence.append("Window size consistent with Linux")
         elif win == 65535 and "Timestamp" in opts:
-            scores["macOS"] = scores.get("macOS", 0) + 0.2
+            scores["macOS"] = scores.get("macOS", 0) + 0.25
+            result.evidence.append("Window 65535 + Timestamp = likely macOS/iOS")
+        elif win in (16384, 32768, 4128):
+            scores["Network Device"] = scores.get("Network Device", 0) + 0.2
+            result.evidence.append("Window size consistent with embedded/network device")
+        elif win in (14600, 26883, 26880):
+            scores["Android"] = scores.get("Android", 0) + 0.2
+            result.evidence.append("Window size consistent with Android")
+
+        # DF bit: Linux and macOS almost always set DF
+        if df:
+            scores["Linux"] = scores.get("Linux", 0) + 0.05
+            scores["macOS"] = scores.get("macOS", 0) + 0.05
 
         # TCP options analysis
         if "WScale" in opts:
@@ -132,9 +164,10 @@ def fingerprint_os(ip: str) -> OSFingerprint:
                 scores["Linux"] = scores.get("Linux", 0) + 0.1
             elif wscale in (5, 6):
                 scores["macOS"] = scores.get("macOS", 0) + 0.1
+                scores["iOS"] = scores.get("iOS", 0) + 0.05
 
         if "Timestamp" not in opts:
-            scores["Windows"] = scores.get("Windows", 0) + 0.1
+            scores["Windows"] = scores.get("Windows", 0) + 0.15
             result.evidence.append("No TCP timestamp (common on Windows)")
 
         if "SAckOK" in opts and "Timestamp" in opts:
@@ -145,7 +178,7 @@ def fingerprint_os(ip: str) -> OSFingerprint:
                 scores["Windows"] = scores.get("Windows", 0) + 0.1
 
     # --- Open Port Heuristics ---
-    open_ports = _scan_ports(ip, [135, 445, 5353, 62078])
+    open_ports = _scan_ports(ip, [135, 445, 5353, 62078, 8008, 8443, 548, 3689])
 
     if open_ports:
         result.evidence.append(f"Open ports from heuristic set: {open_ports}")
@@ -155,11 +188,24 @@ def fingerprint_os(ip: str) -> OSFingerprint:
         result.evidence.append("Ports 135/445 indicate Windows")
 
     if 62078 in open_ports and 5353 in open_ports:
-        scores["macOS"] = scores.get("macOS", 0) + 0.3
-        result.evidence.append("Ports 5353+62078 indicate macOS")
+        scores["iOS"] = scores.get("iOS", 0) + 0.35
+        result.evidence.append("Ports 5353+62078 indicate iOS")
     elif 62078 in open_ports:
         scores["iOS"] = scores.get("iOS", 0) + 0.3
         result.evidence.append("Port 62078 indicates iOS")
+
+    if 548 in open_ports or 3689 in open_ports:
+        scores["macOS"] = scores.get("macOS", 0) + 0.25
+        result.evidence.append("AFP/DAAP ports indicate macOS")
+
+    if 8008 in open_ports:
+        scores["IoT"] = scores.get("IoT", 0) + 0.3
+        result.evidence.append("Port 8008 indicates Google Cast/IoT")
+
+    # 5353 alone (mDNS) without Apple ports suggests Linux/Android
+    if 5353 in open_ports and 62078 not in open_ports and 548 not in open_ports:
+        scores["Linux"] = scores.get("Linux", 0) + 0.05
+        scores["Android"] = scores.get("Android", 0) + 0.05
 
     # --- Determine winner ---
     if not scores:
@@ -174,11 +220,12 @@ def fingerprint_os(ip: str) -> OSFingerprint:
     # Detail mapping
     detail_map = {
         "Windows": "Windows 10/11" if scores.get("Windows", 0) > 0.4 else "Windows (version unknown)",
-        "Linux": "Linux 5.x" if scores.get("Linux", 0) > 0.3 else "Linux (version unknown)",
-        "macOS": "macOS/iOS",
-        "iOS": "iOS device",
+        "Linux": "Linux 5.x/6.x" if scores.get("Linux", 0) > 0.3 else "Linux (version unknown)",
+        "macOS": "macOS (Apple)",
+        "iOS": "iOS (iPhone/iPad)",
         "Android": "Android device",
         "Network Device": "Router/Switch (TTL 255)",
+        "IoT": "IoT / Smart Device",
     }
     result.os_detail = detail_map.get(best, best)
 
