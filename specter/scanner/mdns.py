@@ -99,7 +99,7 @@ class MDNSScanner:
         """Scan for mDNS services.
 
         Args:
-            duration: How long to listen for advertisements (seconds).
+            duration: Max time to listen for advertisements (seconds).
             service_types: List of service types to scan for. Defaults to SERVICES.
 
         Returns:
@@ -114,7 +114,19 @@ class MDNSScanner:
             browser = ServiceBrowser(self._zeroconf, stype, handlers=[self._on_service_state_change])
             browsers.append(browser)
 
-        time.sleep(duration)
-        self._zeroconf.close()
+        # Wait up to duration, but exit early if no new services for 1.5s
+        end_time = time.time() + duration
+        last_count = 0
+        stable_since = time.time()
 
+        while time.time() < end_time:
+            time.sleep(0.3)
+            current_count = len(self.services)
+            if current_count > last_count:
+                last_count = current_count
+                stable_since = time.time()
+            elif time.time() - stable_since > 1.5:
+                break  # No new services for 1.5s — done
+
+        self._zeroconf.close()
         return self.services

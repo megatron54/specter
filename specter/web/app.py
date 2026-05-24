@@ -96,6 +96,8 @@ def _save_scan_results():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    global _main_loop
+    _main_loop = asyncio.get_event_loop()
     _load_scan_results()
     yield
     _cleanup_attacks()
@@ -169,18 +171,19 @@ async def broadcast(event: str, data: Any):
         _ws_connections.remove(ws)
 
 
+# Reference to the main asyncio event loop (set at startup)
+_main_loop: asyncio.AbstractEventLoop | None = None
+
+
 def add_log(level: str, message: str):
     """Add a log entry and broadcast it."""
     entry = {"time": time.strftime("%H:%M:%S"), "level": level, "message": message}
     _state["logs"].append(entry)
     if len(_state["logs"]) > 500:
         _state["logs"] = _state["logs"][-500:]
-    try:
-        loop = asyncio.get_event_loop()
-        if loop.is_running():
-            loop.create_task(broadcast("log", entry))
-    except RuntimeError:
-        pass
+    # Broadcast to WebSocket clients (works from any thread)
+    if _main_loop and _main_loop.is_running():
+        asyncio.run_coroutine_threadsafe(broadcast("log", entry), _main_loop)
 
 
 # --- Routes ---
@@ -230,11 +233,11 @@ def _do_scan(req: ScanRequest) -> dict:
     add_log("info", f"Scanning {subnet}...")
 
     # ARP scan
-    hosts = arp_scan(subnet, timeout=min(req.timeout, 3.0))
+    hosts = arp_scan(subnet, timeout=2.0)
 
     # mDNS
     mdns = MDNSScanner()
-    services = mdns.scan(duration=min(req.timeout, 3.0))
+    services = mdns.scan(duration=3.0)
     service_map: dict[str, list[str]] = {}
     for svc in services:
         service_map.setdefault(svc.host, []).append(svc.service_type)

@@ -97,14 +97,7 @@ def resolve_names(hosts: list[dict], service_map: dict, services: list) -> dict[
         name = _dhcp_hostname_via_dns(ip, gateway_ip)
         if name:
             return ip, name
-        # UPnP (slower, HTTP)
-        name = _upnp_lookup(ip)
-        if name:
-            return ip, name
-        # HTTP probe (slowest, last resort)
-        name = _http_probe(ip)
-        if name:
-            return ip, name
+        # Skip UPnP and HTTP probe — too slow for bulk resolution
         return ip, None
 
     with ThreadPoolExecutor(max_workers=10) as executor:
