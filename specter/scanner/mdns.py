@@ -9,13 +9,40 @@ from zeroconf import ServiceBrowser, Zeroconf, ServiceStateChange
 import time
 
 
-# Services to scan for
+# Services to scan for — comprehensive list for IoT/consumer devices
 SERVICES = [
     "_googlecast._tcp.local.",
+    "_googlerpc._tcp.local.",
     "_mqtt._tcp.local.",
     "_http._tcp.local.",
-    "_hap._tcp.local.",       # HomeKit
-    "_ssdp._udp.local.",
+    "_https._tcp.local.",
+    "_hap._tcp.local.",           # HomeKit
+    "_airplay._tcp.local.",       # Apple AirPlay
+    "_raop._tcp.local.",          # Apple Remote Audio
+    "_spotify-connect._tcp.local.",
+    "_sonos._tcp.local.",
+    "_ipp._tcp.local.",           # Printing
+    "_ipps._tcp.local.",          # Printing (secure)
+    "_printer._tcp.local.",
+    "_pdl-datastream._tcp.local.",  # Printing raw
+    "_scanner._tcp.local.",
+    "_smb._tcp.local.",           # Samba/file sharing
+    "_afpovertcp._tcp.local.",    # Apple file sharing
+    "_device-info._tcp.local.",
+    "_companion-link._tcp.local.",  # Apple companion
+    "_homekit._tcp.local.",
+    "_trel._udp.local.",          # Thread
+    "_meshcop._udp.local.",       # Thread mesh
+    "_matter._tcp.local.",        # Matter smart home
+    "_matterc._udp.local.",       # Matter commissioning
+    "_esphomelib._tcp.local.",    # ESPHome
+    "_arduino._tcp.local.",
+    "_workstation._tcp.local.",
+    "_ssh._tcp.local.",
+    "_sftp-ssh._tcp.local.",
+    "_rdp._tcp.local.",
+    "_samsung-dm._tcp.local.",    # Samsung device management
+    "_samsungtvremote._tcp.local.",
 ]
 
 

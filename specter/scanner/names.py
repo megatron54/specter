@@ -91,6 +91,32 @@ def resolve_names(hosts: list[dict], service_map: dict, services: list) -> dict[
         if name:
             name_map[ip] = name
 
+    # 6. DHCP hostname via router DNS
+    # Detect gateway
+    gateway_ip = None
+    try:
+        from scapy.all import conf
+        gateway_ip = conf.route.route("0.0.0.0")[2]
+    except Exception:
+        pass
+
+    for host in hosts:
+        ip = host["ip"] if isinstance(host, dict) else host.ip
+        if ip in name_map:
+            continue
+        name = _dhcp_hostname_via_dns(ip, gateway_ip)
+        if name:
+            name_map[ip] = name
+
+    # 7. Active HTTP probing (last resort — slower)
+    for host in hosts:
+        ip = host["ip"] if isinstance(host, dict) else host.ip
+        if ip in name_map:
+            continue
+        name = _http_probe(ip)
+        if name:
+            name_map[ip] = name
+
     return name_map
 
 
@@ -187,4 +213,168 @@ def _reverse_dns(ip: str) -> str | None:
             return hostname
     except (socket.herror, socket.gaierror, OSError):
         pass
+    return None
+
+
+def _http_probe(ip: str) -> str | None:
+    """Probe HTTP services to extract device name from response.
+
+    Checks common ports and parses:
+    - HTML <title> tags
+    - Server headers
+    - JSON responses with name/device fields
+    """
+    import re
+
+    ports_to_try = [80, 8080, 443, 8008, 8443]
+    client = httpx.Client(timeout=2.0, verify=False, follow_redirects=True)
+
+    for port in ports_to_try:
+        scheme = "https" if port in (443, 8443) else "http"
+        try:
+            resp = client.get(f"{scheme}://{ip}:{port}/")
+            if resp.status_code == 200:
+                content = resp.text
+                # Try JSON with name field
+                if resp.headers.get("content-type", "").startswith("application/json"):
+                    try:
+                        data = resp.json()
+                        name = (
+                            data.get("name") or
+                            data.get("device_name") or
+                            data.get("deviceName") or
+                            data.get("friendly_name") or
+                            data.get("device", {}).get("name") if isinstance(data.get("device"), dict) else None
+                        )
+                        if name:
+                            client.close()
+                            return name
+                    except Exception:
+                        pass
+
+                # Try HTML title
+                title_match = re.search(r"<title[^>]*>([^<]+)</title>", content, re.IGNORECASE)
+                if title_match:
+                    title = title_match.group(1).strip()
+                    # Filter out generic titles
+                    generic = {"200 ok", "index", "home", "login", "welcome", "", "document"}
+                    if title.lower() not in generic and len(title) < 60:
+                        client.close()
+                        return title
+
+                # Check Server header for device identification
+                server = resp.headers.get("server", "")
+                if server and server.lower() not in ("nginx", "apache", "httpd", "lighttpd", ""):
+                    # Server headers like "EPSON HTTP" or "SHIP 2.0" identify devices
+                    client.close()
+                    return server
+
+        except (httpx.ConnectError, httpx.ReadTimeout, httpx.ConnectTimeout, Exception):
+            continue
+
+    client.close()
+    return None
+
+
+def _dhcp_hostname_via_dns(ip: str, gateway_ip: str | None = None) -> str | None:
+    """Try to resolve hostname via the router's DNS.
+
+    Many routers register DHCP client hostnames in their local DNS,
+    accessible as <hostname>.local or via PTR record.
+    """
+    import struct
+
+    # Build a PTR query for the IP
+    # e.g., 192.168.1.34 -> 34.1.168.192.in-addr.arpa
+    octets = ip.split(".")
+    ptr_name = ".".join(reversed(octets)) + ".in-addr.arpa"
+
+    # If we have a gateway, try querying it as DNS server
+    dns_servers = []
+    if gateway_ip:
+        dns_servers.append(gateway_ip)
+    dns_servers.append("127.0.0.1")  # Local resolver
+
+    for dns_server in dns_servers:
+        try:
+            # Build DNS query packet
+            transaction_id = b"\xaa\xbb"
+            flags = b"\x01\x00"  # Standard query, recursion desired
+            questions = b"\x00\x01"
+            answer_rrs = b"\x00\x00"
+            authority_rrs = b"\x00\x00"
+            additional_rrs = b"\x00\x00"
+
+            # Encode PTR name
+            qname = b""
+            for label in ptr_name.split("."):
+                qname += struct.pack("B", len(label)) + label.encode()
+            qname += b"\x00"
+
+            qtype = b"\x00\x0c"   # PTR
+            qclass = b"\x00\x01"  # IN
+
+            packet = transaction_id + flags + questions + answer_rrs + authority_rrs + additional_rrs + qname + qtype + qclass
+
+            sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            sock.settimeout(1.5)
+            sock.sendto(packet, (dns_server, 53))
+            data, _ = sock.recvfrom(1024)
+            sock.close()
+
+            # Parse response — check if we got an answer
+            answer_count = struct.unpack("!H", data[6:8])[0]
+            if answer_count > 0:
+                # Skip header (12 bytes) + question section
+                offset = 12
+                # Skip question name
+                while data[offset] != 0:
+                    if data[offset] & 0xC0 == 0xC0:  # Pointer
+                        offset += 2
+                        break
+                    offset += data[offset] + 1
+                else:
+                    offset += 1
+                offset += 4  # Skip QTYPE + QCLASS
+
+                # Parse answer
+                # Skip name (might be pointer)
+                if data[offset] & 0xC0 == 0xC0:
+                    offset += 2
+                else:
+                    while data[offset] != 0:
+                        offset += data[offset] + 1
+                    offset += 1
+
+                # Skip TYPE(2) + CLASS(2) + TTL(4)
+                offset += 8
+                rdlength = struct.unpack("!H", data[offset:offset+2])[0]
+                offset += 2
+
+                # Parse PTR RDATA (domain name)
+                hostname_parts = []
+                end = offset + rdlength
+                while offset < end and data[offset] != 0:
+                    if data[offset] & 0xC0 == 0xC0:
+                        # Pointer — follow it
+                        ptr_offset = struct.unpack("!H", data[offset:offset+2])[0] & 0x3FFF
+                        while data[ptr_offset] != 0:
+                            label_len = data[ptr_offset]
+                            hostname_parts.append(data[ptr_offset+1:ptr_offset+1+label_len].decode("ascii", errors="ignore"))
+                            ptr_offset += label_len + 1
+                        break
+                    label_len = data[offset]
+                    hostname_parts.append(data[offset+1:offset+1+label_len].decode("ascii", errors="ignore"))
+                    offset += label_len + 1
+
+                if hostname_parts:
+                    # Return just the hostname part (first label usually)
+                    hostname = hostname_parts[0]
+                    # Filter out PTR-style names
+                    if not hostname.replace("-", "").replace(".", "").isdigit():
+                        return hostname
+
+        except (socket.timeout, OSError, struct.error, IndexError):
+            continue
+
     return None
