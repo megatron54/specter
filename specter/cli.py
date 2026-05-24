@@ -60,9 +60,16 @@ def scan(
             if result.open_ports:
                 port_map[host.ip] = [p.port for p in result.open_ports]
 
+    # Resolve device names
+    console.print(f"[bold]Resolving names...[/bold]")
+    from specter.scanner.names import resolve_names
+    host_dicts = [{"ip": h.ip, "mac": h.mac} for h in hosts]
+    name_map = resolve_names(host_dicts, service_map, services)
+
     # Display results
     table = Table(title=f"Discovered Devices ({len(hosts)} hosts)")
     table.add_column("IP", style="cyan")
+    table.add_column("Name", style="bold white")
     table.add_column("MAC", style="green")
     table.add_column("Vendor", style="yellow")
     table.add_column("Type", style="magenta")
@@ -76,6 +83,7 @@ def scan(
         profile = fingerprint_device(host.ip, host.mac, svc_list)
         row = [
             host.ip,
+            name_map.get(host.ip, "-"),
             host.mac,
             profile.vendor,
             profile.device_type,

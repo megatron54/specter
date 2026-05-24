@@ -165,6 +165,11 @@ async def trigger_scan(req: ScanRequest):
                     for p in result.open_ports
                 ]
 
+    # Resolve device names
+    from specter.scanner.names import resolve_names
+    host_dicts = [{"ip": h.ip, "mac": h.mac} for h in hosts]
+    name_map = resolve_names(host_dicts, service_map, services)
+
     # Build device list
     devices = []
     for host in hosts:
@@ -173,6 +178,7 @@ async def trigger_scan(req: ScanRequest):
         devices.append({
             "ip": host.ip,
             "mac": host.mac,
+            "name": name_map.get(host.ip, ""),
             "vendor": profile.vendor,
             "device_type": profile.device_type,
             "services": [s.replace("._tcp.local.", "").replace("._udp.local.", "") for s in svc_list],
