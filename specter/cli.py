@@ -124,7 +124,7 @@ def portscan(
     if unauth_ports:
         console.print(f"\n[bold red]Found {len(unauth_ports)} potentially unauthenticated service(s)![/bold red]")
         for p in unauth_ports:
-            console.print(f"  [red]>{/red] {p.port}/{p.service} — {p.banner[:80]}")
+            console.print(f"  [red]>[/red] {p.port}/{p.service} — {p.banner[:80]}")
 
 
 @app.command()

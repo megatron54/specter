@@ -1,10 +1,14 @@
 """Google Cast local API module.
 
-Interacts with Google Home/Nest devices via their unauthenticated (or
-token-authenticated) local HTTPS API on port 8443.
+Interacts with Google Home/Nest devices via:
+1. Unauthenticated HTTP on port 8008 (recon — eureka_info always works)
+2. Token-authenticated HTTPS on port 8443 (full control — requires local auth token)
 
-Capabilities:
-- Device info enumeration (name, MAC, WiFi, capabilities)
+Capabilities (unauthenticated, port 8008):
+- Device info: name, MAC, WiFi SSID/BSSID, IP, locale, timezone, build version
+- Network reconnaissance: signal strength, connected network details
+
+Capabilities (authenticated, port 8443):
 - Reboot / factory reset
 - Do Not Disturb toggle
 - Alarm/timer enumeration and deletion
@@ -17,7 +21,8 @@ from dataclasses import dataclass
 import httpx
 
 
-CAST_PORT = 8443
+CAST_PORT_UNAUTH = 8008  # HTTP, no auth needed for eureka_info
+CAST_PORT_AUTH = 8443    # HTTPS, requires local auth token
 BASE_PATH = "/setup"
 
 
@@ -34,7 +39,13 @@ class CastDevice:
 
     @property
     def base_url(self) -> str:
-        return f"https://{self.ip}:{CAST_PORT}{BASE_PATH}"
+        """Authenticated endpoint (HTTPS 8443)."""
+        return f"https://{self.ip}:{CAST_PORT_AUTH}{BASE_PATH}"
+
+    @property
+    def unauth_url(self) -> str:
+        """Unauthenticated endpoint (HTTP 8008)."""
+        return f"http://{self.ip}:{CAST_PORT_UNAUTH}{BASE_PATH}"
 
 
 class GoogleCastModule:
@@ -42,10 +53,15 @@ class GoogleCastModule:
 
     def __init__(self, device: CastDevice):
         self.device = device
+        # Authenticated client (HTTPS, port 8443)
         self._client = httpx.Client(
-            verify=False,  # Self-signed cert on the device
+            verify=False,
             timeout=10.0,
             headers=self._build_headers(),
+        )
+        # Unauthenticated client (HTTP, port 8008)
+        self._unauth_client = httpx.Client(
+            timeout=10.0,
         )
 
     def _build_headers(self) -> dict[str, str]:
@@ -55,11 +71,31 @@ class GoogleCastModule:
         return headers
 
     def get_device_info(self) -> dict:
-        """Fetch full device information via /eureka_info.
+        """Fetch device information via /eureka_info.
 
-        Returns device name, build info, network config, WiFi details,
-        capabilities, and more.
+        WORKS WITHOUT AUTHENTICATION on port 8008.
+        Returns: name, WiFi SSID/BSSID, MAC, IP, locale, timezone, build info.
         """
+        # Try unauthenticated first (port 8008)
+        try:
+            resp = self._unauth_client.get(f"{self.device.unauth_url}/eureka_info")
+            if resp.status_code == 200:
+                return resp.json()
+        except httpx.ConnectError:
+            pass
+
+        # Fall back to authenticated (port 8443)
+        params = {
+            "params": "version,audio,name,build_info,detail,device_info,net,wifi,setup,settings,opt_in,opencast,multizone,proxy,night_mode_params,user_eq,room_equalizer",
+            "options": "detail",
+            "nonce": "12345",
+        }
+        resp = self._client.get(f"{self.device.base_url}/eureka_info", params=params)
+        resp.raise_for_status()
+        return resp.json()
+
+    def get_device_info_full(self) -> dict:
+        """Fetch extended device info (requires auth token on port 8443)."""
         params = {
             "params": "version,audio,name,build_info,detail,device_info,net,wifi,setup,settings,opt_in,opencast,multizone,proxy,night_mode_params,user_eq,room_equalizer",
             "options": "detail",
