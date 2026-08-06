@@ -18,3 +18,14 @@ env/
 *.swo
 .DS_Store
 Thumbs.db
+
+# Network capture / packet dump artifacts (may contain real traffic)
+*.pcap
+*.cap
+*.dump
+
+# Runtime scan output — real network scan data must never be committed.
+# Block all JSON in the web data directory, but allow the curated,
+# sanitized example that ships with the repo.
+specter/web/data/*.json
+!specter/web/data/scan_results.json
