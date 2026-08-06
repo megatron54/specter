@@ -11,6 +11,15 @@
 
 > ⚠️ **This is an offensive security tool.** It can disconnect devices, intercept traffic, and issue unauthenticated commands to real hardware. Read the [Ethical Use & Disclaimer](#ethical-use--disclaimer) section before running it.
 
+## Ethical Use & Disclaimer
+
+Specter performs **active network attacks** (ARP spoofing, man-in-the-middle interception, unauthenticated device control, factory resets, mass disconnection). These are the same techniques used in real intrusions.
+
+- **Only run this against networks and devices you own, or have explicit written authorization to test.**
+- Unauthorized ARP poisoning, traffic interception, or device tampering is illegal in most jurisdictions (e.g. under the U.S. CFAA, UK Computer Misuse Act, and equivalent laws elsewhere) and can disrupt production networks or third-party devices.
+- This project exists to demonstrate security-research and red-team engineering skills in a controlled lab/home-network context — it is **not** intended for use on networks belonging to others, public/shared Wi-Fi, workplaces, or IoT devices you do not control.
+- The author assumes no liability for misuse. Use at your own risk and in accordance with local law.
+
 ## What It Does
 
 - **Discovery** — ARP scanning + mDNS/SSDP enumeration to map every device on the local subnet
@@ -24,15 +33,6 @@
   - `tv` — control unauthenticated Samsung Smart TV APIs (info, power, volume, mute, installed apps)
 - **Web dashboard** — FastAPI + WebSocket UI (`specter web`) exposing scan results and live attack status in real time
 - **Reporting** — JSON device inventory and findings export
-
-## Ethical Use & Disclaimer
-
-Specter performs **active network attacks** (ARP spoofing, man-in-the-middle interception, unauthenticated device control, factory resets, mass disconnection). These are the same techniques used in real intrusions.
-
-- **Only run this against networks and devices you own, or have explicit written authorization to test.**
-- Unauthorized ARP poisoning, traffic interception, or device tampering is illegal in most jurisdictions (e.g. under the U.S. CFAA, UK Computer Misuse Act, and equivalent laws elsewhere) and can disrupt production networks or third-party devices.
-- This project exists to demonstrate security-research and red-team engineering skills in a controlled lab/home-network context — it is **not** intended for use on networks belonging to others, public/shared Wi-Fi, workplaces, or IoT devices you do not control.
-- The author assumes no liability for misuse. Use at your own risk and in accordance with local law.
 
 ## Installation
 
